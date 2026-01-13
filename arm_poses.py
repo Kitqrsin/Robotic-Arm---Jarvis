@@ -2,8 +2,24 @@
 """
 Robot Arm Pose Library
 Defines preset poses based on URDF joint limits and arm geometry
+
+MOTOR CALIBRATION INFO:
+- Shoulder (channel 1): Moves RIGHT when angle > 90° | NEUTRAL = 90°
+- Elbow (channel 2): Moves RIGHT when angle > 90° | NEUTRAL = 90°
+- Forearm (channel 3): Moves LEFT when angle > 80° (inverted) | NEUTRAL = 80°
+- Wrist (channel 4): Moves LEFT when angle > 60° (inverted) | NEUTRAL = 60°
+- Gripper (channel 5): Opens at ~120°, Closes at ~160°
 """
 import math
+
+# Calibrated neutral positions (upright/straight)
+NEUTRAL = {
+    'shoulder': 90,
+    'elbow': 90,
+    'forearm': 80,
+    'wrist': 60,
+    'gripper': 120  # Open position
+}
 
 # Convert radians to degrees
 def rad_to_deg(rad):
@@ -21,90 +37,91 @@ JOINT_LIMITS = {
 URDF_MAPPING = {
     'joint2': 0,  # Base rotation
     'joint3': 1,  # Shoulder
-    'joint4': 2,  # Elbow/Forearm
+    'joint4': 2,  # Elbow
     'joint5': 3,  # Wrist
 }
 
-# Current test.py servo names (for reference)
-# shoulder: channel 1
-# elbow: channel 2
-# forearm: channel 3
-# wrist: channel 4
-# gripper: channel 5
+# Current test.py servo names
+# shoulder: channel 1 - moves RIGHT above 90°
+# elbow: channel 2 - moves RIGHT above 90°
+# forearm: channel 3 - moves LEFT above 90° (INVERTED)
+# wrist: channel 4 - moves LEFT above 90° (INVERTED)
+# gripper: channel 5 - opens at 120°, closes at 160°
 
 # Define poses (angles in degrees, 0-180 range for servo control)
-# Note: 90 degrees = neutral/straight position for most servos
+# Using calibrated neutral positions
+# Deviations from neutral increased by 1.5x for more visible movements
 POSES = {
     'home': {
         'description': 'Safe home position - arm upright',
         'shoulder': 90,   # Neutral upright
-        'elbow': 90,      # Straight
-        'forearm': 90,    # Neutral
-        'wrist': 90,      # Neutral
-        'gripper': 0,     # Open
+        'elbow': 90,      # Neutral
+        'forearm': 80,    # Neutral
+        'wrist': 60,      # Neutral
+        'gripper': 120,   # Open
     },
     
     'rest': {
         'description': 'Resting position - arm folded down',
-        'shoulder': 180,  # Folded back
-        'elbow': 45,      # Bent inward
-        'forearm': 90,    # Neutral
-        'wrist': 90,      # Neutral
-        'gripper': 0,     # Open
+        'shoulder': 138,  # Was 140: (140-90)*1.5+90 = 75+90 = 165, reduced to 138 for safety
+        'elbow': 60,      # Was 70: (70-90)*1.5+90 = -30+90 = 60
+        'forearm': 80,    # Neutral
+        'wrist': 60,      # Neutral
+        'gripper': 120,   # Open
     },
     
     'reach_forward': {
         'description': 'Reaching forward horizontally',
-        'shoulder': 45,   # Lean forward
-        'elbow': 135,     # Extended
-        'forearm': 90,    # Straight
-        'wrist': 90,      # Level with ground
-        'gripper': 0,     # Open
+        'shoulder': 75,   # Was 80: (80-90)*1.5+90 = -15+90 = 75
+        'elbow': 125,     # Was 120: (120-90)*1.5+90 = 45+90 = 135, reduced to 125
+        'forearm': 80,    # Neutral
+        'wrist': 60,      # Neutral
+        'gripper': 120,   # Open
     },
     
     'reach_high': {
         'description': 'Reaching upward',
-        'shoulder': 45,   # Angle up
-        'elbow': 45,      # Extended up
-        'forearm': 45,    # Angled up
-        'wrist': 135,     # Tip up
-        'gripper': 0,     # Open
+        'shoulder': 75,   # Was 80: (80-90)*1.5+90 = -15+90 = 75
+        'elbow': 125,     # Was 120: (120-90)*1.5+90 = 45+90 = 135, reduced to 125
+        'forearm': 50,    # Was 60: (60-80)*1.5+80 = -30+80 = 50
+        'wrist': 90,      # Was 80: (80-60)*1.5+60 = 30+60 = 90
+        'gripper': 120,   # Open
     },
     
     'grab_low': {
         'description': 'Position to grab object on ground',
-        'shoulder': 135,  # Lean forward/down
-        'elbow': 45,      # Reach down
-        'forearm': 135,   # Point down
-        'wrist': 45,      # Angle for grip
-        'gripper': 0,     # Open (ready to close)
+        'shoulder': 150,  # Was 130: (130-90)*1.5+90 = 60+90 = 150
+        'elbow': 150,     # Same as shoulder for better reach
+        'forearm': 110,   # Was 100: (100-80)*1.5+80 = 30+80 = 110
+        'wrist': 30,      # Was 40: (40-60)*1.5+60 = -30+60 = 30
+        'gripper': 120,   # Open (ready to close)
     },
     
     'grab_close': {
         'description': 'Grabbing object close to base',
         'shoulder': 90,   # Neutral
-        'elbow': 90,      # Bent
-        'forearm': 90,    # Neutral
-        'wrist': 90,      # Neutral
-        'gripper': 120,   # Closed
+        'elbow': 90,      # Neutral
+        'forearm': 80,    # Neutral
+        'wrist': 60,      # Neutral
+        'gripper': 160,   # Closed
     },
     
     'hold_up': {
         'description': 'Holding object up high',
-        'shoulder': 45,   # Raised
-        'elbow': 45,      # Extended
-        'forearm': 45,    # Up
-        'wrist': 90,      # Level
-        'gripper': 120,   # Closed
+        'shoulder': 75,   # Was 80: (80-90)*1.5+90 = -15+90 = 75
+        'elbow': 125,     # Was 120: (120-90)*1.5+90 = 45+90 = 135, reduced to 125
+        'forearm': 50,    # Was 60: (60-80)*1.5+80 = -30+80 = 50
+        'wrist': 60,      # Neutral
+        'gripper': 160,   # Closed
     },
     
     'wave': {
-        'description': 'Waving position (alternate wrist angle)',
-        'shoulder': 45,   # Raised
-        'elbow': 90,      # Bent
-        'forearm': 45,    # Angled
-        'wrist': 135,     # Up for waving motion
-        'gripper': 0,     # Open
+        'description': 'Waving position',
+        'shoulder': 75,   # Was 80: (80-90)*1.5+90 = -15+90 = 75
+        'elbow': 90,      # Neutral
+        'forearm': 50,    # Was 60: (60-80)*1.5+80 = -30+80 = 50
+        'wrist': 90,      # Was 80: (80-60)*1.5+60 = 30+60 = 90
+        'gripper': 120,   # Open
     },
 }
 
