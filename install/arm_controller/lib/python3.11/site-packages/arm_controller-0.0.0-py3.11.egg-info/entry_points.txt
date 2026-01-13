@@ -1,0 +1,2 @@
+[console_scripts]
+servo_node = arm_controller.servo_node:main

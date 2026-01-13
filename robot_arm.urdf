@@ -1,0 +1,141 @@
+<?xml version="1.0"?>
+<robot name="myfirst">
+
+    <link name="base_link">
+        <visual>
+            <geometry>
+                <box size="0.06 0.06 0.002"/>
+            </geometry>
+            <origin xyz="0 0 -0.021" rpy="0 0 0"/>
+         </visual>
+    </link>
+
+    <link name="motor1">
+        <visual>
+            <geometry>
+                <box size="0.02 0.02 0.04"/>
+            </geometry>
+            <material name="blue">
+                <color rgba="0 0 1 1"/>
+            </material>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+         </visual>
+    </link>
+
+    <link name="motor2">
+        <visual>
+            <geometry>
+                <box size="0.02 0.04 0.02"/>
+            </geometry>
+            <material name="blue"/>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+         </visual>
+    </link>
+    
+    <link name="hand_extendension">
+        <visual>
+            <geometry>
+                <box size="0.02 0.02 0.128"/>
+            </geometry>
+            <material name="green">
+                <color rgba="0 1 0 1"/>
+            </material>
+            <origin xyz="0 0 0.06" rpy="0 0 0"/>
+         </visual>
+    </link>
+    <link name="motor3">
+        <visual>
+            <geometry>
+                <box size="0.02 0.02 0.04"/>
+            </geometry>
+            <material name="yellow">
+                <color rgba="0 0 1 1"/>
+            </material>
+            <origin xyz="0 0 0.01" rpy="0 0 0"/>
+         </visual>
+    </link>
+
+    <link name="pipe">
+        <visual>
+            <geometry>
+                <box size="0.01 0.01 0.1"/>
+            </geometry>
+            <material name="yellow">
+                <color rgba="0 0 1 1"/>
+            </material>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+         </visual>
+    </link>
+    <link name="motor4">
+        <visual>
+            <geometry>
+                <box size="0.02 0.02 0.16"/>
+            </geometry>
+            <material name="yellow">
+                <color rgba="0 0 1 1"/>
+            </material>
+            <origin xyz="0 0 0.08" rpy="0 0 0.0"/>
+         </visual>
+    </link>
+    <joint name="joint1" type="fixed">
+        <parent link="base_link"/>
+        <child link="motor1"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+    </joint>
+
+    <joint name="joint2" type="revolute">
+        <parent link="motor1"/>
+        <child link="motor2"/>
+        <origin xyz="0 0 0.03" rpy="0 0 0"/>
+        <axis xyz="0 0 1"/>
+        <limit lower="-1.57" upper="1.57" effort="100" velocity="100"/>
+    </joint>
+
+    <joint name="joint3" type="revolute">
+        <parent link="motor2"/>
+        <child link="hand_extendension"/>
+        <origin xyz="0 0.02 0" rpy="0 0 0"/>
+        <axis xyz="1 0 0"/>
+        <limit lower="-1.57" upper="1.57" effort="100" velocity="100"/>
+    </joint>
+
+    <joint name="joint4" type="revolute">
+        <parent link="hand_extendension"/>
+        <child link="motor3"/>
+        <origin xyz="0 0 0.12" rpy="0 0 0"/>
+        <axis xyz="1 0 0" rpy="0 0 0"/>
+        <limit lower="-1.57" upper="1.57" effort="100" velocity="100"/>
+    </joint>
+    <joint name="pipe_joint" type="fixed">
+        <parent link="motor3"/>
+        <child link="pipe"/>
+        <origin xyz="0 0 0.08" rpy="0 0 0"/>
+    </joint>
+    <joint name="joint5" type="revolute">
+        <parent link="pipe"/>
+        <child link="motor4"/>
+        <origin xyz="0 0 0.05" rpy="0 0 0"/>
+        <axis xyz="1 0 0"/>
+        <limit lower="-1.57" upper="1.57" effort="100" velocity="100"/>
+    </joint>
+    <ros2_control name="ServoArm" type="system">
+        <hardware>
+            <plugin>servo_driver</plugin>
+        </hardware>
+
+        <joint name="joint2">
+            <param name="servo_channel">0</param>
+        </joint>
+
+        <joint name="joint3">
+            <param name="servo_channel">1</param>
+        </joint>
+        <joint name="joint4">
+            <param name="servo_channel">2</param>
+        </joint>
+        <joint name="joint5">
+            <param name="servo_channel">3</param>
+        </joint>
+    </ros2_control>
+
+</robot>
