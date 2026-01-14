@@ -5,44 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Hex-Axis Arm Control</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        /* Custom Slider Styling for Industrial Look */
-        input[type=range] {
-            -webkit-appearance: none;
-            width: 100%;
-            background: transparent;
-        }
-
-        input[type=range]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            height: 24px;
-            width: 24px;
-            border-radius: 50%;
-            background: #3b82f6;
-            cursor: pointer;
-            margin-top: -10px;
-            box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
-            border: 2px solid #1e293b;
-        }
-
-        input[type=range]::-webkit-slider-runnable-track {
-            width: 100%;
-            height: 4px;
-            cursor: pointer;
-            background: #334155;
-            border-radius: 2px;
-        }
-
-        input[type=range]:focus::-webkit-slider-thumb {
-            background: #60a5fa;
-            box-shadow: 0 0 15px rgba(96, 165, 250, 0.8);
-        }
-
-        /* Gauge Animation */
-        .gauge-bar {
-            transition: width 0.2s ease-out, background-color 0.2s;
-        }
-    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body class="bg-slate-900 text-slate-100 font-sans min-h-screen flex flex-col">
 
@@ -56,8 +19,11 @@
             <div class="flex items-center space-x-4">
                 <div class="hidden md:flex flex-col text-right text-xs text-slate-400">
                     <span>Status: <span id="status-indicator" class="text-emerald-400 font-bold">CONNECTING...</span></span>
-                    <span>Port: <span class="text-slate-300">Flask Server</span></span>
+                    <span>Motors: <span id="oe-status" class="text-red-400 font-bold">DISABLED</span></span>
                 </div>
+                <button id="oe-toggle-btn" onclick="toggleOE()" class="bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded shadow-lg font-bold transition-colors">
+                    ENABLE MOTORS
+                </button>
                 <button onclick="emergencyStop()" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded shadow-lg font-bold transition-colors animate-pulse">
                     STOP
                 </button>
@@ -69,16 +35,16 @@
     <main class="flex-grow p-4 md:p-6 overflow-y-auto">
         <div class="max-w-4xl mx-auto space-y-6">
             
-            <!-- Power Monitor (OCP Helper) -->
+            <!-- Movement Delay Control -->
             <div class="bg-slate-800 rounded-xl p-4 border border-slate-700 shadow-lg">
                 <div class="flex justify-between items-end mb-2">
-                    <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wider">Estimated Load (OCP Monitor)</h2>
-                    <span id="amp-readout" class="text-2xl font-mono text-emerald-400">0.4 A</span>
+                    <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wider">Movement Speed Control</h2>
+                    <span id="delay-readout" class="text-2xl font-mono text-blue-400">100 ms</span>
                 </div>
-                <div class="w-full bg-slate-900 h-4 rounded-full overflow-hidden border border-slate-700 relative">
-                    <!-- Threshold Line (OCP Limit) -->
-                    <div class="absolute top-0 bottom-0 w-0.5 bg-red-500 z-10" style="left: 80%" title="OCP Limit (Simulated)"></div>
-                    <div id="current-bar" class="h-full bg-emerald-500 gauge-bar" style="width: 10%;"></div>
+                <input type="range" id="delay-slider" min="10" max="500" value="100" step="10" oninput="updateDelay(this.value)" class="w-full">
+                <div class="flex justify-between text-xs text-slate-500 mt-1">
+                    <span>10ms (Very Fast)</span>
+                    <span>500ms (Very Slow)</span>
                 </div>
             </div>
 
@@ -88,9 +54,9 @@
                 <div class="bg-slate-800 p-4 rounded-xl border-l-4 border-purple-500 shadow-md">
                     <div class="flex justify-between mb-2">
                         <label class="font-bold text-purple-200">Shoulder</label>
-                        <span id="val-s2" class="font-mono bg-slate-900 px-2 rounded text-purple-400">90°</span>
+                        <span id="val-s2" class="font-mono bg-slate-900 px-2 rounded text-purple-400">106°</span>
                     </div>
-                    <input type="range" id="s2" min="0" max="180" value="90" oninput="updateArm(2, this.value)">
+                    <input type="range" id="s2" min="0" max="180" value="106" oninput="document.getElementById('val-s2').innerText = this.value + '°'" onchange="updateArm(2, this.value)">
                     <div class="flex justify-between text-xs text-slate-500 mt-1">
                         <span>0°</span>
                         <span>180°</span>
@@ -101,9 +67,9 @@
                 <div class="bg-slate-800 p-4 rounded-xl border-l-4 border-cyan-500 shadow-md">
                     <div class="flex justify-between mb-2">
                         <label class="font-bold text-cyan-200">Elbow</label>
-                        <span id="val-s3" class="font-mono bg-slate-900 px-2 rounded text-cyan-400">90°</span>
+                        <span id="val-s3" class="font-mono bg-slate-900 px-2 rounded text-cyan-400">104°</span>
                     </div>
-                    <input type="range" id="s3" min="0" max="180" value="90" oninput="updateArm(3, this.value)">
+                    <input type="range" id="s3" min="0" max="180" value="104" oninput="document.getElementById('val-s3').innerText = this.value + '°'" onchange="updateArm(3, this.value)">
                     <div class="flex justify-between text-xs text-slate-500 mt-1">
                         <span>0°</span>
                         <span>180°</span>
@@ -116,7 +82,7 @@
                         <label class="font-bold text-amber-200">Forearm</label>
                         <span id="val-s4" class="font-mono bg-slate-900 px-2 rounded text-amber-400">80°</span>
                     </div>
-                    <input type="range" id="s4" min="0" max="180" value="80" oninput="updateArm(4, this.value)">
+                    <input type="range" id="s4" min="0" max="180" value="80" oninput="document.getElementById('val-s4').innerText = this.value + '°'" onchange="updateArm(4, this.value)">
                     <div class="flex justify-between text-xs text-slate-500 mt-1">
                         <span>0°</span>
                         <span>180°</span>
@@ -129,7 +95,7 @@
                         <label class="font-bold text-pink-200">Wrist</label>
                         <span id="val-s5" class="font-mono bg-slate-900 px-2 rounded text-pink-400">60°</span>
                     </div>
-                    <input type="range" id="s5" min="0" max="180" value="60" oninput="updateArm(5, this.value)">
+                    <input type="range" id="s5" min="0" max="180" value="60" oninput="document.getElementById('val-s5').innerText = this.value + '°'" onchange="updateArm(5, this.value)">
                     <div class="flex justify-between text-xs text-slate-500 mt-1">
                         <span>0°</span>
                         <span>180°</span>
@@ -142,7 +108,7 @@
                         <label class="font-bold text-red-200">Gripper</label>
                         <span id="val-s6" class="font-mono bg-slate-900 px-2 rounded text-red-400">45°</span>
                     </div>
-                    <input type="range" id="s6" min="0" max="180" value="45" oninput="updateArm(6, this.value)">
+                    <input type="range" id="s6" min="0" max="180" value="45" oninput="document.getElementById('val-s6').innerText = this.value + '°'" onchange="updateArm(6, this.value)">
                     <div class="flex justify-between text-xs text-slate-500 mt-1">
                         <span>0° (Open)</span>
                         <span>180° (Closed)</span>
@@ -165,7 +131,6 @@
 
                 <!-- Saved List -->
                 <div id="saved-poses-list" class="space-y-2 max-h-60 overflow-y-auto pr-2">
-                    <!-- Populated by JS -->
                     <div class="text-center text-slate-500 text-sm py-4 italic">No saved positions yet.</div>
                 </div>
             </div>
@@ -178,273 +143,6 @@
         </div>
     </main>
 
-    <script>
-        // --- Configuration ---
-        const API_BASE = window.location.origin;
-
-        // --- State ---
-        let armState = {
-            s2: 90, // Shoulder
-            s3: 90, // Elbow
-            s4: 80, // Forearm
-            s5: 60, // Wrist
-            s6: 45  // Gripper
-        };
-
-        let currentAmp = 0.4;
-        let targetAmp = 0.4;
-        let isConnected = false;
-        
-        // Load saved poses from local storage
-        let savedPoses = JSON.parse(localStorage.getItem('roboArmPoses')) || [];
-
-        // --- API Functions ---
-
-        async function sendServoCommand(servoId, angle) {
-            try {
-                const response = await fetch(`${API_BASE}/api/servo/${servoId}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ angle: angle })
-                });
-                
-                const data = await response.json();
-                if (!data.success) {
-                    console.error('Servo command failed:', data.error);
-                }
-                return data.success;
-            } catch (error) {
-                console.error('Network error:', error);
-                updateConnectionStatus(false);
-                return false;
-            }
-        }
-
-        async function checkStatus() {
-            try {
-                const response = await fetch(`${API_BASE}/api/status`);
-                const data = await response.json();
-                updateConnectionStatus(data.online);
-                return data;
-            } catch (error) {
-                updateConnectionStatus(false);
-                return null;
-            }
-        }
-
-        function updateConnectionStatus(connected) {
-            isConnected = connected;
-            const indicator = document.getElementById('status-indicator');
-            if (connected) {
-                indicator.textContent = 'ONLINE';
-                indicator.className = 'text-emerald-400 font-bold';
-            } else {
-                indicator.textContent = 'OFFLINE';
-                indicator.className = 'text-red-400 font-bold';
-            }
-        }
-
-        // --- UI Logic ---
-
-        function updateArm(servoId, value) {
-            value = parseInt(value);
-            armState[`s${servoId}`] = value;
-            
-            // Update UI Text
-            document.getElementById(`val-s${servoId}`).innerText = value + '°';
-            
-            // Send to robot
-            sendServoCommand(servoId, value);
-            
-            // Simulate Current Spike
-            triggerCurrentSpike(servoId, value);
-
-            logData(`Servo ${servoId} → ${value}°`);
-        }
-
-        // Apply a full state object to the arm
-        function applyState(newState) {
-            for (let key in newState) {
-                if (newState[key] !== undefined) {
-                    const servoId = parseInt(key.substring(1));
-                    armState[key] = newState[key];
-                    const slider = document.getElementById(key);
-                    if (slider) {
-                        slider.value = newState[key];
-                        document.getElementById(`val-s${servoId}`).innerText = newState[key] + '°';
-                        sendServoCommand(servoId, newState[key]);
-                    }
-                }
-            }
-            triggerCurrentSpike(0, 0, true);
-            logData('Loaded pose');
-        }
-
-        // --- Save/Load Logic ---
-
-        function saveCurrentPose() {
-            const nameInput = document.getElementById('pose-name-input');
-            const name = nameInput.value.trim();
-
-            if (!name) {
-                alert("Please enter a name for this position.");
-                return;
-            }
-
-            const newPose = {
-                name: name,
-                state: { ...armState },
-                timestamp: new Date().getTime()
-            };
-
-            savedPoses.push(newPose);
-            saveToStorage();
-            renderSavedPoses();
-            nameInput.value = '';
-            logData(`Saved pose: ${name}`);
-        }
-
-        function loadPose(index) {
-            const pose = savedPoses[index];
-            if (pose) {
-                applyState(pose.state);
-            }
-        }
-
-        function deletePose(index) {
-            if(confirm('Delete position "' + savedPoses[index].name + '"?')) {
-                savedPoses.splice(index, 1);
-                saveToStorage();
-                renderSavedPoses();
-            }
-        }
-
-        function saveToStorage() {
-            localStorage.setItem('roboArmPoses', JSON.stringify(savedPoses));
-        }
-
-        function renderSavedPoses() {
-            const listEl = document.getElementById('saved-poses-list');
-            listEl.innerHTML = '';
-
-            if (savedPoses.length === 0) {
-                listEl.innerHTML = '<div class="text-center text-slate-500 text-sm py-4 italic">No saved positions yet.</div>';
-                return;
-            }
-
-            savedPoses.forEach((pose, index) => {
-                const row = document.createElement('div');
-                row.className = 'flex items-center justify-between bg-slate-900 p-3 rounded border border-slate-700 group';
-                
-                const angles = Object.keys(pose.state).map(k => pose.state[k]).join(', ');
-                
-                row.innerHTML = `
-                    <div class="flex flex-col">
-                        <span class="font-semibold text-slate-200">${pose.name}</span>
-                        <span class="text-xs text-slate-500 font-mono">${angles}</span>
-                    </div>
-                    <div class="flex gap-2">
-                        <button onclick="loadPose(${index})" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-3 py-2 rounded transition">Load</button>
-                        <button onclick="deletePose(${index})" class="bg-slate-700 hover:bg-red-600 text-slate-300 text-xs px-3 py-2 rounded transition" title="Delete">✕</button>
-                    </div>
-                `;
-                listEl.appendChild(row);
-            });
-        }
-
-        async function emergencyStop() {
-            try {
-                const response = await fetch(`${API_BASE}/api/emergency_stop`, {
-                    method: 'POST'
-                });
-                const data = await response.json();
-                
-                if (data.success) {
-                    targetAmp = 0;
-                    currentAmp = 0;
-                    logData('!!! EMERGENCY STOP !!!', true);
-                    alert("EMERGENCY STOP: All servos disabled.");
-                }
-            } catch (error) {
-                console.error('Emergency stop failed:', error);
-                alert("Failed to send emergency stop!");
-            }
-        }
-
-        // --- Data Logging ---
-        function logData(message, isError = false) {
-            const date = new Date();
-            const time = date.toLocaleTimeString();
-            const dataStr = `[${time}] ${message}`;
-            
-            const consoleDiv = document.getElementById('data-stream');
-            const newEntry = document.createElement('div');
-            newEntry.innerText = dataStr;
-            if (isError) newEntry.className = 'text-red-500 font-bold';
-            consoleDiv.insertBefore(newEntry, consoleDiv.firstChild);
-            
-            if (consoleDiv.children.length > 20) {
-                consoleDiv.removeChild(consoleDiv.lastChild);
-            }
-        }
-
-        // --- Power Simulation Logic ---
-        function triggerCurrentSpike(servoId, val, isMacro = false) {
-            let baseLoad = 0.4;
-            let spike = isMacro ? 3.5 : Math.random() * 0.8 + 0.2;
-            if (armState.s6 > 160) {
-                baseLoad += 1.5; 
-            }
-            targetAmp = baseLoad + spike;
-            setTimeout(() => {
-                targetAmp = baseLoad;
-            }, 300);
-        }
-
-        function updatePowerGauge() {
-            currentAmp += (targetAmp - currentAmp) * 0.1;
-            
-            const readout = document.getElementById('amp-readout');
-            const bar = document.getElementById('current-bar');
-            
-            readout.innerText = currentAmp.toFixed(2) + ' A';
-            const percentage = Math.min((currentAmp / 5) * 100, 100);
-            bar.style.width = percentage + '%';
-
-            if (currentAmp > 3.0) {
-                bar.classList.remove('bg-emerald-500', 'bg-yellow-400');
-                bar.classList.add('bg-red-500');
-                readout.classList.add('text-red-500');
-            } else if (currentAmp > 1.5) {
-                bar.classList.remove('bg-emerald-500', 'bg-red-500');
-                bar.classList.add('bg-yellow-400');
-                readout.classList.remove('text-red-500');
-                readout.classList.add('text-yellow-400');
-            } else {
-                bar.classList.remove('bg-yellow-400', 'bg-red-500');
-                bar.classList.add('bg-emerald-500');
-                readout.classList.remove('text-red-500', 'text-yellow-400');
-                readout.classList.add('text-emerald-400');
-            }
-
-            requestAnimationFrame(updatePowerGauge);
-        }
-
-        // --- Initialization ---
-        async function init() {
-            await checkStatus();
-            renderSavedPoses();
-            updatePowerGauge();
-            
-            // Poll status every 5 seconds
-            setInterval(checkStatus, 5000);
-            
-            logData('Web UI initialized');
-        }
-
-        // Start
-        init();
-
-    </script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

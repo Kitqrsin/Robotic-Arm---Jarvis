@@ -8,12 +8,17 @@ from flask_cors import CORS
 import time
 import sys
 import os
+import signal
+import json
+import atexit
 from board import SCL, SDA
 import busio
 from adafruit_pca9685 import PCA9685
 from adafruit_motor import servo
 from gpiozero import OutputDevice
 import threading
+import sqlite3
+from datetime import datetime
 
 # Add parent directory to path to import arm_poses
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../..'))
@@ -27,10 +32,12 @@ CORS(app)
 
 # --- CONFIGURATION ---
 OE_PIN = 17
+DB_PATH = os.path.join(os.path.dirname(__file__), 'robot_poses.db')
+STATE_FILE = os.path.join(os.path.dirname(__file__), 'last_position.json')
 
 SERVO_CONFIG = {
-    's': {'channel': 1, 'type': 'standard', 'min': 1000, 'max': 2000, 'range': 180, 'start_angle': 90},
-    'e': {'channel': 2, 'type': 'standard', 'min': 1000, 'max': 2000, 'range': 180, 'start_angle': 90},
+    's': {'channel': 1, 'type': 'standard', 'min': 1000, 'max': 2000, 'range': 180, 'start_angle': 106},
+    'e': {'channel': 2, 'type': 'standard', 'min': 1000, 'max': 2000, 'range': 180, 'start_angle': 104},
     'f': {'channel': 4, 'type': 'standard', 'min': 1000, 'max': 2000, 'range': 180, 'start_angle': 80},
     'w': {'channel': 5, 'type': 'standard', 'min': 1000, 'max': 2000, 'range': 180, 'start_angle': 60},
     'g': {'channel': 6, 'type': 'standard', 'min': 1000, 'max': 2000, 'range': 180, 'start_angle': 45},
@@ -51,6 +58,76 @@ oe_pin = None
 pca = None
 arm = {}
 arm_lock = threading.Lock()
+current_position = {}  # Track current servo positions
+
+# --- POSITION PERSISTENCE FUNCTIONS ---
+
+def save_current_position():
+    """Save current arm position to file"""
+    try:
+        with arm_lock:
+            position = {
+                's2': current_position.get('s', SERVO_CONFIG['s']['start_angle']),
+                's3': current_position.get('e', SERVO_CONFIG['e']['start_angle']),
+                's4': current_position.get('f', SERVO_CONFIG['f']['start_angle']),
+                's5': current_position.get('w', SERVO_CONFIG['w']['start_angle']),
+                's6': current_position.get('g', SERVO_CONFIG['g']['start_angle'])
+            }
+        
+        with open(STATE_FILE, 'w') as f:
+            json.dump(position, f, indent=2)
+        
+        print(f"[STATE] Saved current position: {position}")
+        return True
+    except Exception as e:
+        print(f"[ERROR] Could not save position: {e}")
+        return False
+
+def load_last_position():
+    """Load last saved position from file"""
+    try:
+        if os.path.exists(STATE_FILE):
+            with open(STATE_FILE, 'r') as f:
+                position = json.load(f)
+            print(f"[STATE] Loaded last position: {position}")
+            return position
+        else:
+            print("[STATE] No saved position found, using defaults")
+            return None
+    except Exception as e:
+        print(f"[ERROR] Could not load position: {e}")
+        return None
+
+# --- DATABASE FUNCTIONS ---
+
+def init_database():
+    """Initialize SQLite database for saved poses"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS poses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            s2 INTEGER NOT NULL,
+            s3 INTEGER NOT NULL,
+            s4 INTEGER NOT NULL,
+            s5 INTEGER NOT NULL,
+            s6 INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    conn.commit()
+    conn.close()
+    print("[DATABASE] Initialized robot_poses.db")
+
+def get_db_connection():
+    """Get a database connection"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
 
 def init_hardware():
     """Initialize GPIO, I2C, and servo objects"""
@@ -85,19 +162,9 @@ def init_hardware():
         except Exception as e:
             print(f"  ! Error initializing {name}: {e}")
 
-    # Enable motors
-    if oe_pin:
-        oe_pin.off()  # LOW = MOTORS ENABLED
-        print("⚡ MOTORS ACTIVE ⚡")
-        time.sleep(0.5)
-
-    # Move to start positions
-    print("Moving to start positions...")
-    for name, config in SERVO_CONFIG.items():
-        if config['start_angle'] is not None and name in arm:
-            arm[name].angle = config['start_angle']
-            print(f"  > {name.upper()} locked at {config['start_angle']}°")
-
+    # Keep motors disabled on startup
+    print("--- MOTORS DISABLED (OE Pin HIGH) ---")
+    print("--- Use the web UI to enable motors ---")
     print("--- READY ---")
 
 # --- API ROUTES ---
@@ -125,6 +192,7 @@ def set_servo(servo_id):
         
         with arm_lock:
             arm[servo_name].angle = angle
+            current_position[servo_name] = angle  # Track position
         
         return jsonify({'success': True, 'servo': servo_id, 'angle': angle})
     
@@ -147,6 +215,7 @@ def set_servos_batch():
                 servo_name = SERVO_MAPPING.get(servo_id)
                 if servo_name and servo_name in arm:
                     arm[servo_name].angle = angle
+                    current_position[servo_name] = angle  # Track position
                     results.append({'servo': servo_id, 'angle': angle, 'success': True})
                 else:
                     results.append({'servo': servo_id, 'success': False, 'error': 'Invalid servo'})
@@ -169,7 +238,114 @@ def emergency_stop():
             if oe_pin:
                 oe_pin.on()  # HIGH = MOTORS DISABLED
         
-        return jsonify({'success': True, 'message': 'Emergency stop activated'})
+        return jsonify({'success': True, 'message': 'Emergency stop activated', 'oe_enabled': False})
+    
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/oe_toggle', methods=['POST'])
+def oe_toggle():
+    """Toggle OE pin (enable/disable motors)"""
+    try:
+        data = request.get_json()
+        enable = data.get('enable', False)  # True = enable motors, False = disable
+        
+        if not oe_pin:
+            return jsonify({'success': False, 'error': 'OE pin not available'}), 400
+        
+        if enable:
+            oe_pin.off()  # LOW = MOTORS ENABLED
+            time.sleep(0.5)
+            # Don't move servos here - let the frontend handle gradual movement
+            message = 'Motors ENABLED'
+        else:
+            with arm_lock:
+                # Cut PWM first
+                for i in range(16):
+                    pca.channels[i].duty_cycle = 0
+            oe_pin.on()  # HIGH = MOTORS DISABLED
+            message = 'Motors DISABLED'
+        
+        return jsonify({'success': True, 'message': message, 'oe_enabled': enable})
+    
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/saved_poses', methods=['GET'])
+def get_saved_poses():
+    """Get all user-saved poses from database"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM poses ORDER BY created_at DESC')
+        rows = cursor.fetchall()
+        conn.close()
+        
+        poses = []
+        for row in rows:
+            poses.append({
+                'id': row['id'],
+                'name': row['name'],
+                'state': {
+                    's2': row['s2'],
+                    's3': row['s3'],
+                    's4': row['s4'],
+                    's5': row['s5'],
+                    's6': row['s6']
+                },
+                'timestamp': row['created_at']
+            })
+        
+        return jsonify({'success': True, 'poses': poses})
+    
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/saved_poses', methods=['POST'])
+def save_pose():
+    """Save a new pose to database"""
+    try:
+        data = request.get_json()
+        name = data.get('name', '').strip()
+        state = data.get('state', {})
+        
+        if not name:
+            return jsonify({'success': False, 'error': 'Name is required'}), 400
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO poses (name, s2, s3, s4, s5, s6)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (
+            name,
+            state.get('s2', 90),
+            state.get('s3', 90),
+            state.get('s4', 80),
+            state.get('s5', 60),
+            state.get('s6', 45)
+        ))
+        
+        pose_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True, 'id': pose_id, 'message': f'Pose "{name}" saved'})
+    
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/saved_poses/<int:pose_id>', methods=['DELETE'])
+def delete_pose(pose_id):
+    """Delete a saved pose"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM poses WHERE id = ?', (pose_id,))
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True, 'message': f'Pose deleted'})
     
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -191,7 +367,7 @@ def get_status():
     """Get current arm status"""
     status = {
         'online': True,
-        'oe_enabled': oe_pin is not None and not oe_pin.value,
+        'oe_enabled': oe_pin is not None and not oe_pin.is_active,  # is_active means LOW (enabled)
         'servos': {}
     }
     
@@ -206,12 +382,22 @@ def get_status():
                 status['servos'][name] = {'angle': None, 'channel': SERVO_CONFIG[name]['channel']}
     
     return jsonify(status)
-
+@app.route('/api/last_position', methods=['GET'])
+def get_last_position():
+    """Get last saved position"""
+    position = load_last_position()
+    if position:
+        return jsonify({'success': True, 'position': position})
+    else:
+        return jsonify({'success': False, 'message': 'No saved position'})
 # --- CLEANUP ---
 def cleanup():
     """Cleanup GPIO and servos on shutdown"""
     print("\n[SHUTDOWN] Cleaning up...")
     try:
+        # Save current position before shutting down
+        save_current_position()
+        
         for i in range(16):
             pca.channels[i].duty_cycle = 0
         if oe_pin:
@@ -221,10 +407,35 @@ def cleanup():
     except Exception as e:
         print(f"[CLEANUP ERROR] {e}")
 
+def signal_handler(sig, frame):
+    """Handle Ctrl+C gracefully"""
+    print("\n[SIGNAL] Interrupt received, saving state...")
+    save_current_position()
+    cleanup()
+    sys.exit(0)
+
 # --- MAIN ---
 if __name__ == '__main__':
+    # Register signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    atexit.register(save_current_position)  # Save on normal exit too
+    
     try:
+        init_database()
         init_hardware()
+        
+        # Load last known position
+        last_pos = load_last_position()
+        if last_pos:
+            print("[STATE] Last known positions will be used as defaults")
+            # Update SERVO_CONFIG with last positions
+            SERVO_CONFIG['s']['start_angle'] = last_pos.get('s2', 106)
+            SERVO_CONFIG['e']['start_angle'] = last_pos.get('s3', 104)
+            SERVO_CONFIG['f']['start_angle'] = last_pos.get('s4', 80)
+            SERVO_CONFIG['w']['start_angle'] = last_pos.get('s5', 60)
+            SERVO_CONFIG['g']['start_angle'] = last_pos.get('s6', 45)
+        
         print("\n" + "="*50)
         print("  🌐 Web UI available at http://localhost:5000")
         print("="*50 + "\n")

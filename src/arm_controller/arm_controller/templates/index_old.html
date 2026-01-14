@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hex-Axis Arm Control</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom Slider Styling for Industrial Look */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 24px;
+            width: 24px;
+            border-radius: 50%;
+            background: #3b82f6;
+            cursor: pointer;
+            margin-top: -10px;
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+            border: 2px solid #1e293b;
+        }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #334155;
+            border-radius: 2px;
+        }
+
+        input[type=range]:focus::-webkit-slider-thumb {
+            background: #60a5fa;
+            box-shadow: 0 0 15px rgba(96, 165, 250, 0.8);
+        }
+
+        /* Gauge Animation */
+        .gauge-bar {
+            transition: width 0.2s ease-out, background-color 0.2s;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 font-sans min-h-screen flex flex-col">
+
+    <!-- Header -->
+    <header class="bg-slate-800 border-b border-slate-700 p-4 sticky top-0 z-10 shadow-lg">
+        <div class="max-w-4xl mx-auto flex justify-between items-center">
+            <div class="flex items-center space-x-3">
+                <div class="w-8 h-8 bg-blue-500 rounded flex items-center justify-center font-bold text-white">R</div>
+                <h1 class="text-xl font-bold tracking-wide">ROBO<span class="text-blue-400">ARM</span> V6</h1>
+            </div>
+            <div class="flex items-center space-x-4">
+                <div class="hidden md:flex flex-col text-right text-xs text-slate-400">
+                    <span>Status: <span id="status-indicator" class="text-emerald-400 font-bold">CONNECTING...</span></span>
+                    <span>Motors: <span id="oe-status" class="text-red-400 font-bold">DISABLED</span></span>
+                </div>
+                <button id="oe-toggle-btn" onclick="toggleOE()" class="bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded shadow-lg font-bold transition-colors">
+                    ENABLE MOTORS
+                </button>
+                <button onclick="emergencyStop()" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded shadow-lg font-bold transition-colors animate-pulse">
+                    STOP
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-grow p-4 md:p-6 overflow-y-auto">
+        <div class="max-w-4xl mx-auto space-y-6">
+            
+            <!-- Power Monitor (OCP Helper) -->
+            <div class="bg-slate-800 rounded-xl p-4 border border-slate-700 shadow-lg">
+                <div class="flex justify-between items-end mb-2">
+                    <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wider">Estimated Load (OCP Monitor)</h2>
+                    <span id="amp-readout" class="text-2xl font-mono text-emerald-400">0.4 A</span>
+                </div>
+                <div class="w-full bg-slate-900 h-4 rounded-full overflow-hidden border border-slate-700 relative">
+                    <!-- Threshold Line (OCP Limit) -->
+                    <div class="absolute top-0 bottom-0 w-0.5 bg-red-500 z-10" style="left: 80%" title="OCP Limit (Simulated)"></div>
+                    <div id="current-bar" class="h-full bg-emerald-500 gauge-bar" style="width: 10%;"></div>
+                </div>
+            </div>
+
+            <!-- Servo Sliders -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- Servo 2: Shoulder -->
+                <div class="bg-slate-800 p-4 rounded-xl border-l-4 border-purple-500 shadow-md">
+                    <div class="flex justify-between mb-2">
+                        <label class="font-bold text-purple-200">Shoulder</label>
+                        <span id="val-s2" class="font-mono bg-slate-900 px-2 rounded text-purple-400">90°</span>
+                    </div>
+                    <input type="range" id="s2" min="0" max="180" value="90" oninput="updateArm(2, this.value)">
+                    <div class="flex justify-between text-xs text-slate-500 mt-1">
+                        <span>0°</span>
+                        <span>180°</span>
+                    </div>
+                </div>
+
+                <!-- Servo 3: Elbow -->
+                <div class="bg-slate-800 p-4 rounded-xl border-l-4 border-cyan-500 shadow-md">
+                    <div class="flex justify-between mb-2">
+                        <label class="font-bold text-cyan-200">Elbow</label>
+                        <span id="val-s3" class="font-mono bg-slate-900 px-2 rounded text-cyan-400">90°</span>
+                    </div>
+                    <input type="range" id="s3" min="0" max="180" value="90" oninput="updateArm(3, this.value)">
+                    <div class="flex justify-between text-xs text-slate-500 mt-1">
+                        <span>0°</span>
+                        <span>180°</span>
+                    </div>
+                </div>
+
+                <!-- Servo 4: Forearm -->
+                <div class="bg-slate-800 p-4 rounded-xl border-l-4 border-amber-500 shadow-md">
+                    <div class="flex justify-between mb-2">
+                        <label class="font-bold text-amber-200">Forearm</label>
+                        <span id="val-s4" class="font-mono bg-slate-900 px-2 rounded text-amber-400">80°</span>
+                    </div>
+                    <input type="range" id="s4" min="0" max="180" value="80" oninput="updateArm(4, this.value)">
+                    <div class="flex justify-between text-xs text-slate-500 mt-1">
+                        <span>0°</span>
+                        <span>180°</span>
+                    </div>
+                </div>
+
+                <!-- Servo 5: Wrist -->
+                <div class="bg-slate-800 p-4 rounded-xl border-l-4 border-pink-500 shadow-md">
+                    <div class="flex justify-between mb-2">
+                        <label class="font-bold text-pink-200">Wrist</label>
+                        <span id="val-s5" class="font-mono bg-slate-900 px-2 rounded text-pink-400">60°</span>
+                    </div>
+                    <input type="range" id="s5" min="0" max="180" value="60" oninput="updateArm(5, this.value)">
+                    <div class="flex justify-between text-xs text-slate-500 mt-1">
+                        <span>0°</span>
+                        <span>180°</span>
+                    </div>
+                </div>
+
+                <!-- Servo 6: Gripper -->
+                <div class="bg-slate-800 p-4 rounded-xl border-l-4 border-red-500 shadow-md">
+                    <div class="flex justify-between mb-2">
+                        <label class="font-bold text-red-200">Gripper</label>
+                        <span id="val-s6" class="font-mono bg-slate-900 px-2 rounded text-red-400">45°</span>
+                    </div>
+                    <input type="range" id="s6" min="0" max="180" value="45" oninput="updateArm(6, this.value)">
+                    <div class="flex justify-between text-xs text-slate-500 mt-1">
+                        <span>0° (Open)</span>
+                        <span>180° (Closed)</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Custom Positions Saver -->
+            <div class="bg-slate-800 rounded-xl p-4 border border-slate-700 shadow-md">
+                <h3 class="text-lg font-bold text-slate-300 mb-4 border-b border-slate-700 pb-2">Custom Positions</h3>
+                
+                <!-- Input Area -->
+                <div class="flex gap-2 mb-4">
+                    <input type="text" id="pose-name-input" placeholder="Enter position name (e.g. 'Pick up Cup')" 
+                        class="flex-grow bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500">
+                    <button onclick="saveCurrentPose()" class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded font-semibold transition">
+                        Save Current
+                    </button>
+                </div>
+
+                <!-- Saved List -->
+                <div id="saved-poses-list" class="space-y-2 max-h-60 overflow-y-auto pr-2">
+                    <!-- Populated by JS -->
+                    <div class="text-center text-slate-500 text-sm py-4 italic">No saved positions yet.</div>
+                </div>
+            </div>
+
+            <!-- Data Output -->
+            <div class="bg-black rounded-lg p-4 font-mono text-xs text-green-500 h-24 overflow-y-auto border border-slate-700 shadow-inner" id="console-log">
+                <div class="text-slate-500 border-b border-slate-800 pb-1 mb-2">Command Log</div>
+                <div id="data-stream">Initializing connection...</div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // --- Configuration ---
+        const API_BASE = window.location.origin;
+
+        // --- State ---
+        let armState = {
+            s2: 90, // Shoulder
+            s3: 90, // Elbow
+            s4: 80, // Forearm
+            s5: 60, // Wrist
+            s6: 45  // Gripper
+        };
+
+        let currentAmp = 0.4;
+        let targetAmp = 0.4;
+        let isConnected = false;
+        let oeEnabled = false;  // Track OE pin state
+        
+        // Saved poses now loaded from server
+        let savedPoses = [];
+
+        // --- API Functions ---
+
+        async function sendServoCommand(servoId, angle) {
+            try {
+                const response = await fetch(`${API_BASE}/api/servo/${servoId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ angle: angle })
+                });
+                
+                const data = await response.json();
+                if (!data.success) {
+                    console.error('Servo command failed:', data.error);
+                }
+                return data.success;
+            } catch (error) {
+                console.error('Network error:', error);
+                updateConnectionStatus(false);
+                return false;
+            }
+        }
+
+        async function checkStatus() {
+            try {
+                const response = await fetch(`${API_BASE}/api/status`);
+                const data = await response.json();
+                updateConnectionStatus(data.online);
+                updateOEStatus(data.oe_enabled);
+                return data;
+            } catch (error) {
+                updateConnectionStatus(false);
+                return null;
+            }
+        }
+
+        async function toggleOE() {
+            try {
+                const newState = !oeEnabled;
+                const response = await fetch(`${API_BASE}/api/oe_toggle`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enable: newState })
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    updateOEStatus(data.oe_enabled);
+                    logData(data.message);
+                } else {
+                    alert('Failed to toggle motors: ' + data.error);
+                }
+            } catch (error) {
+                console.error('OE toggle failed:', error);
+                alert('Network error: Could not toggle motors');
+            }
+        }
+
+        function updateOEStatus(enabled) {
+            oeEnabled = enabled;
+            const statusEl = document.getElementById('oe-status');
+            const btnEl = document.getElementById('oe-toggle-btn');
+            
+            if (enabled) {
+                statusEl.textContent = 'ENABLED';
+                statusEl.className = 'text-emerald-400 font-bold';
+                btnEl.textContent = 'DISABLE MOTORS';
+                btnEl.className = 'bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded shadow-lg font-bold transition-colors';
+            } else {
+                statusEl.textContent = 'DISABLED';
+                statusEl.className = 'text-red-400 font-bold';
+                btnEl.textContent = 'ENABLE MOTORS';
+                btnEl.className = 'bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded shadow-lg font-bold transition-colors';
+            }
+        }
+
+        function updateConnectionStatus(connected) {
+            isConnected = connected;
+            const indicator = document.getElementById('status-indicator');
+            if (connected) {
+                indicator.textContent = 'ONLINE';
+                indicator.className = 'text-emerald-400 font-bold';
+            } else {
+                indicator.textContent = 'OFFLINE';
+                indicator.className = 'text-red-400 font-bold';
+            }
+        }
+
+        // --- UI Logic ---
+
+        function updateArm(servoId, value) {
+            value = parseInt(value);
+            armState[`s${servoId}`] = value;
+            
+            // Update UI Text
+            document.getElementById(`val-s${servoId}`).innerText = value + '°';
+            
+            // Send to robot
+            sendServoCommand(servoId, value);
+            
+            // Simulate Current Spike
+            triggerCurrentSpike(servoId, value);
+
+            logData(`Servo ${servoId} → ${value}°`);
+        }
+
+        // Apply a full state object to the arm
+        function applyState(newState) {
+            for (let key in newState) {
+                if (newState[key] !== undefined) {
+                    const servoId = parseInt(key.substring(1));
+                    armState[key] = newState[key];
+                    const slider = document.getElementById(key);
+                    if (slider) {
+                        slider.value = newState[key];
+                        document.getElementById(`val-s${servoId}`).innerText = newState[key] + '°';
+                        sendServoCommand(servoId, newState[key]);
+                    }
+                }
+            }
+            triggerCurrentSpike(0, 0, true);
+            logData('Loaded pose');
+        }
+
+        // --- Save/Load Logic ---
+
+        async function loadSavedPoses() {
+            try {
+                const response = await fetch(`${API_BASE}/api/saved_poses`);
+                const data = await response.json();
+                if (data.success) {
+                    savedPoses = data.poses;
+                    renderSavedPoses();
+                }
+            } catch (error) {
+                console.error('Failed to load poses:', error);
+            }
+        }
+
+        async function saveCurrentPose() {
+            const nameInput = document.getElementById('pose-name-input');
+            const name = nameInput.value.trim();
+
+            if (!name) {
+                alert("Please enter a name for this position.");
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/api/saved_poses`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: name,
+                        state: armState
+                    })
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    nameInput.value = '';
+                    logData(`Saved pose: ${name}`);
+                    await loadSavedPoses();  // Reload from server
+                } else {
+                    alert('Failed to save: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Save failed:', error);
+                alert('Network error: Could not save pose');
+            }
+        }
+
+        function loadPose(index) {
+            const pose = savedPoses[index];
+            if (pose) {
+                applyState(pose.state);
+            }
+        }
+
+        async function deletePose(index) {
+            const pose = savedPoses[index];
+            if (!pose) return;
+            
+            if (confirm('Delete position "' + pose.name + '"?')) {
+                try {
+                    const response = await fetch(`${API_BASE}/api/saved_poses/${pose.id}`, {
+                        method: 'DELETE'
+                    });
+                    
+                    const data = await response.json();
+                    if (data.success) {
+                        logData(`Deleted pose: ${pose.name}`);
+                        await loadSavedPoses();  // Reload from server
+                    } else {
+                        alert('Failed to delete: ' + data.error);
+                    }
+                } catch (error) {
+                    console.error('Delete failed:', error);
+                    alert('Network error: Could not delete pose');
+                }
+            }
+        }
+        
+
+        function saveToStorage() {
+            localStorage.setItem('roboArmPoses', JSON.stringify(savedPoses));
+        }
+
+        function renderSavedPoses() {
+            const listEl = document.getElementById('saved-poses-list');
+            listEl.innerHTML = '';
+
+            if (savedPoses.length === 0) {
+                listEl.innerHTML = '<div class="text-center text-slate-500 text-sm py-4 italic">No saved positions yet.</div>';
+                return;
+            }
+
+            savedPoses.forEach((pose, index) => {
+                const row = document.createElement('div');
+                row.className = 'flex items-center justify-between bg-slate-900 p-3 rounded border border-slate-700 group';
+                
+                const angles = Object.keys(pose.state).map(k => pose.state[k]).join(', ');
+                
+                row.innerHTML = `
+                    <div class="flex flex-col">
+                        <span class="font-semibold text-slate-200">${pose.name}</span>
+                        <span class="text-xs text-slate-500 font-mono">${angles}</span>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="loadPose(${index})" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-3 py-2 rounded transition">Load</button>
+                        <button onclick="deletePose(${index})" class="bg-slate-700 hover:bg-red-600 text-slate-300 text-xs px-3 py-2 rounded transition" title="Delete">✕</button>
+                    </div>
+                `;
+                listEl.appendChild(row);
+            });
+        }
+
+        async function emergencyStop() {
+            try {
+                const response = await fetch(`${API_BASE}/api/emergency_stop`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    targetAmp = 0;
+                    currentAmp = 0;
+                    logData('!!! EMERGENCY STOP !!!', true);
+                    alert("EMERGENCY STOP: All servos disabled.");
+                }
+            } catch (error) {
+                console.error('Emergency stop failed:', error);
+                alert("Failed to send emergency stop!");
+            }
+        }
+
+        // --- Data Logging ---
+        function logData(message, isError = false) {
+            const date = new Date();
+            const time = date.toLocaleTimeString();
+            const dataStr = `[${time}] ${message}`;
+            
+            const consoleDiv = document.getElementById('data-stream');
+            const newEntry = document.createElement('div');
+            newEntry.innerText = dataStr;
+            if (isError) newEntry.className = 'text-red-500 font-bold';
+            consoleDiv.insertBefore(newEntry, consoleDiv.firstChild);
+            
+            if (consoleDiv.children.length > 20) {
+                consoleDiv.removeChild(consoleDiv.lastChild);
+            }
+        }
+
+        // --- Power Simulation Logic ---
+        function triggerCurrentSpike(servoId, val, isMacro = false) {
+            let baseLoad = 0.4;
+            let spike = isMacro ? 3.5 : Math.random() * 0.8 + 0.2;
+            if (armState.s6 > 160) {
+                baseLoad += 1.5; 
+            }
+            targetAmp = baseLoad + spike;
+            setTimeout(() => {
+                targetAmp = baseLoad;
+            }, 300);
+        }
+
+        async function updatePowerGauge() {
+            currentAmp += (targetAmp - currentAmp) * 0.1;
+            
+            const readout = document.getElementById('amp-readout');
+            const bar = document.getElementById('current-bar');
+            
+            readout.innerText = currentAmp.toFixed(2) + ' A';
+            const percentage = Math.min((currentAmp / 5) * 100, 100);
+            bar.style.width = percentage + '%';
+
+            if (currentAmp > 3.0) {
+                bar.classList.remove('bg-emerald-500', 'bg-yellow-400');
+                bar.classList.add('bg-red-500');
+                readout.classList.add('text-red-500');
+            } else if (currentAmp > 1.5) {
+                bar.classList.remove('bg-emerald-500', 'bg-red-500');
+                bar.classList.add('bg-yellow-400');
+                readout.classList.remove('text-red-500');
+                readout.classList.add('text-yellow-400');
+            } else {
+            await loadSavedPoses();  // Load from databaseemove('bg-yellow-400', 'bg-red-500');
+                bar.classList.add('bg-emerald-500');
+                readout.classList.remove('text-red-500', 'text-yellow-400');
+                readout.classList.add('text-emerald-400');
+            }
+
+            requestAnimationFrame(updatePowerGauge);
+        }
+
+        // --- Initialization ---
+        async function init() {
+            await checkStatus();
+            renderSavedPoses();
+            updatePowerGauge();
+            
+            // Poll status every 5 seconds
+            setInterval(checkStatus, 5000);
+            
+            logData('Web UI initialized');
+        }
+
+        // Start
+        init();
+
+    </script>
+</body>
+</html>
