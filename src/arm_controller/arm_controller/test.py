@@ -25,8 +25,8 @@ SERVO_CONFIG = {
     # 'base': {'channel': 0, 'type': 'continuous', 'min': 500, 'max': 2500}, 
     
     # ARM JOINTS: Standard Positional Servos (Angles).
-    's': {'channel': 1, 'type': 'standard', 'min': 1000, 'max': 2000, 'range': 180, 'start_angle': 90},
-    'e': {'channel': 2, 'type': 'standard', 'min': 1000, 'max': 2000, 'range': 180, 'start_angle': 90},
+    's': {'channel': 1, 'type': 'standard', 'min': 1000, 'max': 2000, 'range': 180, 'start_angle': 80},
+    'e': {'channel': 2, 'type': 'standard', 'min': 1000, 'max': 2000, 'range': 180, 'start_angle': 80},
     'f': {'channel': 4, 'type': 'standard', 'min': 1000, 'max': 2000, 'range': 180, 'start_angle': 80},
     'w': {'channel': 5, 'type': 'standard', 'min': 1000, 'max': 2000, 'range': 180, 'start_angle': 60},
     'g': {'channel': 6, 'type': 'standard', 'min': 1000, 'max': 2000, 'range': 180, 'start_angle': 45},

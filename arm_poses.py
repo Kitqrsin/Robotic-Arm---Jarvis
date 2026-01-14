@@ -4,8 +4,8 @@ Robot Arm Pose Library
 Defines preset poses based on URDF joint limits and arm geometry
 
 MOTOR CALIBRATION INFO:
-- Shoulder (channel 1): Moves RIGHT when angle > 90° | NEUTRAL = 90°
-- Elbow (channel 2): Moves RIGHT when angle > 90° | NEUTRAL = 90°
+- Shoulder (channel 1): Moves LEFT when angle > 90°, RIGHT when angle < 90° | NEUTRAL = 90°
+- Elbow (channel 2): Moves LEFT when angle > 90°, RIGHT when angle < 90° | NEUTRAL = 90°
 - Forearm (channel 3): Moves LEFT when angle > 80° (inverted) | NEUTRAL = 80°
 - Wrist (channel 4): Moves LEFT when angle > 60° (inverted) | NEUTRAL = 60°
 - Gripper (channel 5): Opens at ~120°, Closes at ~160°
@@ -42,10 +42,10 @@ URDF_MAPPING = {
 }
 
 # Current test.py servo names
-# shoulder: channel 1 - moves RIGHT above 90°
-# elbow: channel 2 - moves RIGHT above 90°
-# forearm: channel 3 - moves LEFT above 90° (INVERTED)
-# wrist: channel 4 - moves LEFT above 90° (INVERTED)
+# shoulder: channel 1 - moves LEFT above 90°, RIGHT below 90°
+# elbow: channel 2 - moves LEFT above 90°, RIGHT below 90°
+# forearm: channel 3 - moves LEFT above 80° (INVERTED)
+# wrist: channel 4 - moves LEFT above 60° (INVERTED)
 # gripper: channel 5 - opens at 120°, closes at 160°
 
 # Define poses (angles in degrees, 0-180 range for servo control)
@@ -54,8 +54,8 @@ URDF_MAPPING = {
 POSES = {
     'home': {
         'description': 'Safe home position - arm upright',
-        'shoulder': 90,   # Neutral upright
-        'elbow': 90,      # Neutral
+        'shoulder': 100,   # Neutral upright
+        'elbow': 100,      # Neutral
         'forearm': 80,    # Neutral
         'wrist': 60,      # Neutral
         'gripper': 120,   # Open
