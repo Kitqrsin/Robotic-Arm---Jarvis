@@ -10,6 +10,7 @@ MOTOR CALIBRATION INFO:
 - Wrist (channel 4): Moves LEFT when angle > 60° (inverted) | NEUTRAL = 60°
 - Gripper (channel 5): Opens at ~120°, Closes at ~160°
 """
+
 import math
 
 # Calibrated neutral positions (upright/straight)

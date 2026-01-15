@@ -3,6 +3,7 @@
 Flask Web Interface for Robot Arm Control
 Provides a web-based UI to control servos and save/load poses
 """
+
 import atexit
 import json
 import os
@@ -644,7 +645,7 @@ def get_status():
                     "angle": servo_obj.angle,
                     "channel": SERVO_CONFIG[name]["channel"],
                 }
-            except:
+            except Exception:
                 status["servos"][name] = {
                     "angle": None,
                     "channel": SERVO_CONFIG[name]["channel"],

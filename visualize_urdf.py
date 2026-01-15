@@ -2,6 +2,7 @@
 """
 Simple URDF structure visualizer - shows the kinematic chain
 """
+
 import xml.etree.ElementTree as ET
 
 
@@ -10,9 +11,9 @@ def visualize_urdf(urdf_file):
     root = tree.getroot()
 
     robot_name = root.get("name")
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"  ROBOT: {robot_name}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     # Extract links
     links = {}
