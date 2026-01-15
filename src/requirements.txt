@@ -10,6 +10,9 @@ Werkzeug>=2.0
 # Dev / Testing
 pytest>=7.0
 flake8>=6.0
+black>=24.0
+isort>=5.13
+ruff>=0.1.0
 
 # Note: ROS2 packages (rclpy, etc.) are provided by the system ROS installation
 # and should NOT be installed via pip on a ROS-enabled system.
