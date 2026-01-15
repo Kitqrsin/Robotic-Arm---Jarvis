@@ -23,5 +23,5 @@ from ament_copyright.main import main
 @pytest.mark.copyright
 @pytest.mark.linter
 def test_copyright():
-    rc = main(argv=["src", "test"])
+    rc = main(argv=["src/arm_controller", "test"])
     assert rc == 0, "Found errors"
