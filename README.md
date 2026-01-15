@@ -347,4 +347,29 @@ For issues and questions, please open an issue on GitHub.
 
 ---
 
+
+## Continuous Integration (CI)
+
+This repository includes GitHub Actions workflows to run tests and optionally build Docker images.
+
+- CI workflow: `.github/workflows/ci.yml` — runs on push and pull requests and executes:
+    - Python setup (3.11)
+    - Install dependencies (`src/requirements.txt` if present)
+    - Install package from `src/arm_controller`
+    - Run `flake8` and `pytest`
+
+- Docker build workflow: `.github/workflows/docker-build.yml` — triggers on pushes to `main` when `Dockerfile`, `requirements.txt` or `src/` files change. It will build an image and push to the registry only if both a `Dockerfile` is present and Docker registry secrets are configured.
+
+Required repository secrets for Docker push (optional):
+- `DOCKERHUB_USERNAME` — Docker registry username
+- `DOCKERHUB_TOKEN` — Docker registry token or password
+- `DOCKERHUB_REPO` — Optional repository name (e.g. `yourrepo/roboarm`)
+
+How to run CI locally (quick):
+```bash
+# Run tests locally
+python -m pip install -r src/requirements.txt
+pip install -e src/arm_controller
+pytest -q
+```
 **Made with ❤️ for sigma grindset bob the builder aurafarmers**

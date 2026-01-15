@@ -1,1 +1,17 @@
+# Python dependencies for the RoboARM web control server
+# Install with: pip install -r src/requirements.txt
+
+Flask>=3.0,<4.0
+Flask-Cors>=4.0
+gpiozero==2.0.1
+adafruit-circuitpython-pca9685>=6.0.0
+Werkzeug>=2.0
+
+# Dev / Testing
+pytest>=7.0
+flake8>=6.0
+
+# Note: ROS2 packages (rclpy, etc.) are provided by the system ROS installation
+# and should NOT be installed via pip on a ROS-enabled system.
+# additionally this code base is on Debian so ROS should be installed using a docker
 mamba activate ros_env
