@@ -3,8 +3,10 @@
 Flask Web Interface for Robot Arm Control
 Provides a web-based UI to control servos and save/load poses
 """
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, session, redirect, url_for, flash
 from flask_cors import CORS
+from werkzeug.security import generate_password_hash, check_password_hash
+from functools import wraps
 import time
 import sys
 import os
@@ -28,6 +30,7 @@ except ImportError:
     POSES = {}
 
 app = Flask(__name__)
+app.secret_key = os.environ.get('SECRET_KEY') or 'dev-secret-key-change-in-production-' + os.urandom(24).hex()
 CORS(app)
 
 # --- CONFIGURATION ---
@@ -36,9 +39,9 @@ DB_PATH = os.path.join(os.path.dirname(__file__), 'robot_poses.db')
 STATE_FILE = os.path.join(os.path.dirname(__file__), 'last_position.json')
 
 SERVO_CONFIG = {
-    's': {'channel': 1, 'type': 'standard', 'min': 1000, 'max': 2000, 'range': 180, 'start_angle': 106},
-    'e': {'channel': 2, 'type': 'standard', 'min': 1000, 'max': 2000, 'range': 180, 'start_angle': 104},
-    'f': {'channel': 4, 'type': 'standard', 'min': 1000, 'max': 2000, 'range': 180, 'start_angle': 80},
+    's': {'channel': 1, 'type': 'standard', 'min': 1000, 'max': 2000, 'range': 180, 'start_angle': 94},
+    'e': {'channel': 2, 'type': 'standard', 'min': 1000, 'max': 2000, 'range': 180, 'start_angle': 94},
+    'f': {'channel': 4, 'type': 'standard', 'min': 1000, 'max': 2000, 'range': 180, 'start_angle': 72},
     'w': {'channel': 5, 'type': 'standard', 'min': 1000, 'max': 2000, 'range': 180, 'start_angle': 60},
     'g': {'channel': 6, 'type': 'standard', 'min': 1000, 'max': 2000, 'range': 180, 'start_angle': 45},
 }
@@ -101,10 +104,11 @@ def load_last_position():
 # --- DATABASE FUNCTIONS ---
 
 def init_database():
-    """Initialize SQLite database for saved poses"""
+    """Initialize SQLite database for saved poses and users"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
+    # Poses table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS poses (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -118,15 +122,79 @@ def init_database():
         )
     ''')
     
+    # Users table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            is_admin BOOLEAN DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # Migration: Add is_admin column if it doesn't exist
+    try:
+        cursor.execute('SELECT is_admin FROM users LIMIT 1')
+    except sqlite3.OperationalError:
+        print('[DATABASE] Migrating: Adding is_admin column to users table')
+        cursor.execute('ALTER TABLE users ADD COLUMN is_admin BOOLEAN DEFAULT 0')
+        conn.commit()
+        print('[DATABASE] Migration complete')
+    
     conn.commit()
     conn.close()
-    print("[DATABASE] Initialized robot_poses.db")
+    print("[DATABASE] Initialized robot_poses.db with users table")
+
+def init_admin():
+    """Create default admin account if it doesn't exist"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Check if admin exists
+    cursor.execute('SELECT id FROM users WHERE username = ?', ('admin',))
+    if not cursor.fetchone():
+        # Create admin account
+        admin_password_hash = generate_password_hash('3111admin3111')
+        cursor.execute(
+            'INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, ?)',
+            ('admin', admin_password_hash, 1)
+        )
+        conn.commit()
+        print('[ADMIN] Created default admin account (username: admin)')
+    else:
+        print('[ADMIN] Admin account already exists')
+    
+    conn.close()
 
 def get_db_connection():
     """Get a database connection"""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+def login_required(f):
+    """Decorator to require login for routes"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            if request.path.startswith('/api/'):
+                return jsonify({'success': False, 'error': 'Authentication required'}), 401
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+def admin_required(f):
+    """Decorator to require admin privileges"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            return redirect(url_for('login'))
+        if not session.get('is_admin', False):
+            flash('Admin privileges required', 'error')
+            return redirect(url_for('index'))
+        return f(*args, **kwargs)
+    return decorated_function
 
 
 def init_hardware():
@@ -167,14 +235,100 @@ def init_hardware():
     print("--- Use the web UI to enable motors ---")
     print("--- READY ---")
 
+# --- AUTHENTICATION ROUTES ---
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Login page and handler"""
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        
+        if not username or not password:
+            flash('Username and password are required', 'error')
+            return render_template('login.html')
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM users WHERE username = ?', (username,))
+        user = cursor.fetchone()
+        conn.close()
+        
+        if user and check_password_hash(user['password_hash'], password):
+            session['user_id'] = user['id']
+            session['username'] = user['username']
+            session['is_admin'] = bool(user['is_admin'])
+            flash('Login successful!', 'success')
+            return redirect(url_for('index'))
+        else:
+            flash('Invalid username or password', 'error')
+    
+    return render_template('login.html')
+
+@app.route('/register', methods=['GET', 'POST'])
+@admin_required
+def register():
+    """Registration page and handler - Admin only"""
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        confirm_password = request.form.get('confirm_password', '')
+        
+        if not username or not password:
+            flash('Username and password are required', 'error')
+            return render_template('register.html')
+        
+        if len(username) < 3:
+            flash('Username must be at least 3 characters', 'error')
+            return render_template('register.html')
+        
+        if len(password) < 6:
+            flash('Password must be at least 6 characters', 'error')
+            return render_template('register.html')
+        
+        if password != confirm_password:
+            flash('Passwords do not match', 'error')
+            return render_template('register.html')
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Check if username exists
+        cursor.execute('SELECT id FROM users WHERE username = ?', (username,))
+        if cursor.fetchone():
+            conn.close()
+            flash('Username already exists', 'error')
+            return render_template('register.html')
+        
+        # Create user
+        password_hash = generate_password_hash(password)
+        cursor.execute('INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, ?)', 
+                      (username, password_hash, 0))
+        conn.commit()
+        conn.close()
+        
+        flash(f'User "{username}" created successfully!', 'success')
+        return redirect(url_for('register'))
+    
+    return render_template('register.html')
+
+@app.route('/logout')
+def logout():
+    """Logout handler"""
+    session.clear()
+    flash('Logged out successfully', 'success')
+    return redirect(url_for('login'))
+
 # --- API ROUTES ---
 
 @app.route('/')
+@login_required
 def index():
     """Serve the main HTML UI"""
-    return render_template('index.html')
+    return render_template('index.html', username=session.get('username'))
 
 @app.route('/api/servo/<int:servo_id>', methods=['POST'])
+@login_required
 def set_servo(servo_id):
     """Set a single servo position"""
     try:
@@ -200,6 +354,7 @@ def set_servo(servo_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/servos/batch', methods=['POST'])
+@login_required
 def set_servos_batch():
     """Set multiple servos at once"""
     try:
@@ -226,6 +381,7 @@ def set_servos_batch():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/emergency_stop', methods=['POST'])
+@login_required
 def emergency_stop():
     """Emergency stop - disable all servos"""
     try:
@@ -244,6 +400,7 @@ def emergency_stop():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/oe_toggle', methods=['POST'])
+@login_required
 def oe_toggle():
     """Toggle OE pin (enable/disable motors)"""
     try:
@@ -272,6 +429,7 @@ def oe_toggle():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/saved_poses', methods=['GET'])
+@login_required
 def get_saved_poses():
     """Get all user-saved poses from database"""
     try:
@@ -302,6 +460,7 @@ def get_saved_poses():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/saved_poses', methods=['POST'])
+@login_required
 def save_pose():
     """Save a new pose to database"""
     try:
@@ -336,6 +495,7 @@ def save_pose():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/saved_poses/<int:pose_id>', methods=['DELETE'])
+@login_required
 def delete_pose(pose_id):
     """Delete a saved pose"""
     try:
@@ -351,6 +511,7 @@ def delete_pose(pose_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/poses', methods=['GET'])
+@login_required
 def get_poses():
     """Get all predefined poses"""
     pose_list = []
@@ -363,6 +524,7 @@ def get_poses():
     return jsonify({'success': True, 'poses': pose_list})
 
 @app.route('/api/status', methods=['GET'])
+@login_required
 def get_status():
     """Get current arm status"""
     status = {
@@ -383,6 +545,7 @@ def get_status():
     
     return jsonify(status)
 @app.route('/api/last_position', methods=['GET'])
+@login_required
 def get_last_position():
     """Get last saved position"""
     position = load_last_position()
@@ -398,8 +561,9 @@ def cleanup():
         # Save current position before shutting down
         save_current_position()
         
-        for i in range(16):
-            pca.channels[i].duty_cycle = 0
+        if pca is not None:
+            for i in range(16):
+                pca.channels[i].duty_cycle = 0
         if oe_pin:
             oe_pin.on()  # Disable motors
             oe_pin.close()
@@ -423,6 +587,7 @@ if __name__ == '__main__':
     
     try:
         init_database()
+        init_admin()  # Create admin account
         init_hardware()
         
         # Load last known position
@@ -430,9 +595,9 @@ if __name__ == '__main__':
         if last_pos:
             print("[STATE] Last known positions will be used as defaults")
             # Update SERVO_CONFIG with last positions
-            SERVO_CONFIG['s']['start_angle'] = last_pos.get('s2', 106)
-            SERVO_CONFIG['e']['start_angle'] = last_pos.get('s3', 104)
-            SERVO_CONFIG['f']['start_angle'] = last_pos.get('s4', 80)
+            SERVO_CONFIG['s']['start_angle'] = last_pos.get('s2', 94)
+            SERVO_CONFIG['e']['start_angle'] = last_pos.get('s3', 94)
+            SERVO_CONFIG['f']['start_angle'] = last_pos.get('s4', 90)
             SERVO_CONFIG['w']['start_angle'] = last_pos.get('s5', 60)
             SERVO_CONFIG['g']['start_angle'] = last_pos.get('s6', 45)
         

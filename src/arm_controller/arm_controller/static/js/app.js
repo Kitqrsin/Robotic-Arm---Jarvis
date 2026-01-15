@@ -3,17 +3,19 @@ const API_BASE = window.location.origin;
 
 // --- State ---
 let armState = {
-    s2: 106, // Shoulder
-    s3: 104, // Elbow
-    s4: 80, // Forearm
+    s2: 94, // Shoulder
+    s3: 94, // Elbow
+    s4: 72, // Forearm
     s5: 60, // Wrist
     s6: 45  // Gripper
 };
 
 let isConnected = false;
 let oeEnabled = false;  // Track OE pin state
-let movementDelay = 100; // Delay in ms between angle steps (default: medium speed)
+let servoSpeeds = { s2: 100, s3: 100, s4: 100, s5: 100, s6: 100 };  // Individual servo speeds (ms delay per degree)
 let isMoving = { s2: false, s3: false, s4: false, s5: false, s6: false };  // Per-motor movement locks
+let chainQueue = [];  // Poses in chain (max 5)
+let isChainRunning = false;  // Chain execution state
 
 // Saved poses now loaded from server
 let savedPoses = [];
@@ -62,9 +64,9 @@ async function loadLastPosition() {
             const position = data.position;
             
             // Update armState
-            armState.s2 = position.s2 || 106;
-            armState.s3 = position.s3 || 104;
-            armState.s4 = position.s4 || 80;
+            armState.s2 = position.s2 || 94;
+            armState.s3 = position.s3 || 94;
+            armState.s4 = position.s4 || 72;
             armState.s5 = position.s5 || 60;
             armState.s6 = position.s6 || 45;
             
@@ -112,9 +114,9 @@ async function toggleOE() {
             // Safety: Reset sliders to initial positions when motors are enabled
             if (data.oe_enabled) {
                 const initialPositions = {
-                    s2: 106, // Shoulder
-                    s3: 104, // Elbow
-                    s4: 80,  // Forearm
+                    s2: 94, // Shoulder
+                    s3: 94, // Elbow
+                    s4: 72,  // Forearm
                     s5: 60,  // Wrist
                     s6: 45   // Gripper
                 };
@@ -227,6 +229,9 @@ function lockPoseButtons() {
         btn.disabled = true;
         btn.style.opacity = '0.3';
     });
+    
+    // Update chain buttons
+    updateChainButtons();
 }
 
 function unlockPoseButtons() {
@@ -250,6 +255,9 @@ function unlockPoseButtons() {
         btn.disabled = false;
         btn.style.opacity = '1';
     });
+    
+    // Update chain buttons
+    updateChainButtons();
 }
 
 function updateConnectionStatus(connected) {
@@ -291,21 +299,23 @@ function setMovementLock(servoId, locked) {
     });
 }
 
-function updateDelay(value) {
-    movementDelay = parseInt(value);
-    document.getElementById('delay-readout').innerText = value + ' ms';
-    logData(`Movement delay set to ${value}ms`);
+function updateServoSpeed(servoId, value) {
+    const servoKey = `s${servoId}`;
+    servoSpeeds[servoKey] = parseInt(value);
+    document.getElementById(`speed-val-s${servoId}`).innerText = value + 'ms';
 }
 
 async function moveServoGradually(servoId, targetAngle) {
     const currentAngle = armState[`s${servoId}`];
     const step = targetAngle > currentAngle ? 1 : -1;
+    const servoKey = `s${servoId}`;
+    const delay = servoSpeeds[servoKey] || 100;  // Use servo-specific speed
     
-    // Move one degree at a time with delay
+    // Move one degree at a time with servo-specific delay
     for (let angle = currentAngle; step > 0 ? angle <= targetAngle : angle >= targetAngle; angle += step) {
-        armState[`s${servoId}`] = angle;
+        armState[servoKey] = angle;
         await sendServoCommand(servoId, angle);
-        await new Promise(resolve => setTimeout(resolve, movementDelay));
+        await new Promise(resolve => setTimeout(resolve, delay));
     }
 }
 
@@ -493,13 +503,18 @@ function renderSavedPoses() {
         row.className = 'flex items-center justify-between bg-slate-900 p-3 rounded border border-slate-700 group';
         
         const angles = Object.keys(pose.state).map(k => pose.state[k]).join(', ');
+        const countInChain = chainQueue.filter(p => p.id === pose.id).length;
+        const chainBadge = countInChain > 0 ? ` <span class="text-purple-400 font-bold">×${countInChain}</span>` : '';
         
         row.innerHTML = `
             <div class="flex flex-col">
-                <span class="font-semibold text-slate-200">${pose.name}</span>
+                <span class="font-semibold text-slate-200">${pose.name}${chainBadge}</span>
                 <span class="text-xs text-slate-500 font-mono">${angles}</span>
             </div>
             <div class="flex gap-2">
+                <button onclick="addToChain(${index})" class="bg-purple-600 hover:bg-purple-500 text-white text-xs px-3 py-2 rounded transition" title="Add to chain">
+                    + Chain
+                </button>
                 <button onclick="loadPose(${index})" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-3 py-2 rounded transition">Load</button>
                 <button onclick="deletePose(${index})" class="bg-slate-700 hover:bg-red-600 text-slate-300 text-xs px-3 py-2 rounded transition" title="Delete">✕</button>
             </div>
@@ -542,11 +557,146 @@ function logData(message, isError = false) {
     }
 }
 
+// --- Pose Chaining ---
+function addToChain(index) {
+    const pose = savedPoses[index];
+    if (!pose) return;
+    
+    // Allow duplicates - just add to chain
+    if (chainQueue.length >= 5) {
+        alert('Maximum 5 poses in chain');
+        return;
+    }
+    
+    chainQueue.push(pose);
+    logData(`Added "${pose.name}" to chain (${chainQueue.length}/5)`);
+    
+    renderSavedPoses();
+    renderChainQueue();
+}
+
+function removeFromChain(chainIndex) {
+    if (chainIndex >= 0 && chainIndex < chainQueue.length) {
+        const removed = chainQueue.splice(chainIndex, 1)[0];
+        logData(`Removed "${removed.name}" from chain`);
+        renderSavedPoses();
+        renderChainQueue();
+    }
+}
+
+function clearChain() {
+    chainQueue = [];
+    logData('Chain cleared');
+    renderSavedPoses();
+    renderChainQueue();
+}
+
+function renderChainQueue() {
+    const chainEl = document.getElementById('chain-queue');
+    if (!chainEl) return;
+    
+    if (chainQueue.length === 0) {
+        chainEl.innerHTML = '<div class="text-center text-slate-500 text-sm py-3 italic">No poses in chain</div>';
+        return;
+    }
+    
+    chainEl.innerHTML = chainQueue.map((pose, index) => `
+        <div class="flex items-center justify-between bg-slate-900 p-2 rounded border border-purple-700">
+            <div class="flex items-center gap-2">
+                <span class="text-purple-400 font-bold text-sm">${index + 1}.</span>
+                <span class="text-slate-200 text-sm">${pose.name}</span>
+            </div>
+            <button onclick="removeFromChain(${index})" class="text-slate-400 hover:text-red-400 text-sm px-2" title="Remove">✕</button>
+        </div>
+    `).join('');
+}
+
+async function executeChain() {
+    if (!oeEnabled) {
+        logData('⚠️ Motors disabled - enable motors to run chain', true);
+        return;
+    }
+    
+    if (chainQueue.length === 0) {
+        logData('⚠️ Chain is empty', true);
+        return;
+    }
+    
+    if (isChainRunning) {
+        logData('⚠️ Chain already running', true);
+        return;
+    }
+    
+    const anyMoving = Object.values(isMoving).some(moving => moving);
+    if (anyMoving) {
+        logData('⚠️ Wait for current movement to finish', true);
+        return;
+    }
+    
+    isChainRunning = true;
+    updateChainButtons();
+    logData(`▶ Starting chain (${chainQueue.length} poses)`);
+    
+    try {
+        for (let i = 0; i < chainQueue.length; i++) {
+            if (!isChainRunning) {
+                logData('Chain stopped by user');
+                break;
+            }
+            
+            const pose = chainQueue[i];
+            logData(`[${i + 1}/${chainQueue.length}] Moving to "${pose.name}"`);
+            await applyState(pose.state);
+            
+            // Wait a bit between poses (optional delay)
+            if (i < chainQueue.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+        }
+        
+        logData('✓ Chain completed');
+    } catch (err) {
+        console.error('Chain execution error:', err);
+        logData('⚠️ Chain execution failed', true);
+    } finally {
+        isChainRunning = false;
+        updateChainButtons();
+    }
+}
+
+function stopChain() {
+    if (isChainRunning) {
+        isChainRunning = false;
+        logData('Stopping chain...');
+    }
+}
+
+function updateChainButtons() {
+    const runBtn = document.getElementById('run-chain-btn');
+    const stopBtn = document.getElementById('stop-chain-btn');
+    
+    if (runBtn && stopBtn) {
+        // Stop button always enabled for emergency use
+        stopBtn.disabled = false;
+        stopBtn.style.opacity = isChainRunning ? '1' : '0.5';
+        
+        // Run button disabled during execution or when conditions not met
+        if (isChainRunning) {
+            runBtn.disabled = true;
+            runBtn.style.opacity = '0.3';
+        } else {
+            runBtn.disabled = !oeEnabled || chainQueue.length === 0;
+            runBtn.style.opacity = (!oeEnabled || chainQueue.length === 0) ? '0.3' : '1';
+        }
+    }
+}
+
 // --- Initialization ---
 async function init() {
     await loadLastPosition();  // Load last position first
     await checkStatus();
     await loadSavedPoses();  // Load from database
+    renderChainQueue();  // Render empty chain UI
     
     // Poll status every 5 seconds
     setInterval(checkStatus, 5000);
