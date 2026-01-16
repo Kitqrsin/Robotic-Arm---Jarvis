@@ -48,6 +48,27 @@
             
             <!-- Servo Sliders -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- Servo 1: Base -->
+                <div class="bg-slate-800 p-4 rounded-xl border-l-4 border-blue-500 shadow-md">
+                    <div class="flex justify-between mb-2">
+                        <label class="font-bold text-blue-200">Base</label>
+                        <span id="val-s1" class="font-mono bg-slate-900 px-2 rounded text-blue-400">135°</span>
+                    </div>
+                    <input type="range" id="s1" min="0" max="270" value="135" oninput="document.getElementById('val-s1').innerText = this.value + '°'" onchange="updateArm(1, this.value)">
+                    <div class="flex justify-between text-xs text-slate-500 mt-1">
+                        <span>0°</span>
+                        <span>270°</span>
+                    </div>
+                    <!-- Speed Control for Base -->
+                    <div class="mt-2 pt-2 border-t border-slate-700">
+                        <div class="flex justify-between items-center mb-1">
+                            <span class="text-xs text-slate-400">Speed:</span>
+                            <span id="speed-val-s1" class="text-xs text-blue-300 font-mono">100ms</span>
+                        </div>
+                        <input type="range" id="speed-s1" min="10" max="500" value="100" step="10" oninput="updateServoSpeed(1, this.value)" class="w-full h-1">
+                    </div>
+                </div>
+
                 <!-- Servo 2: Shoulder -->
                 <div class="bg-slate-800 p-4 rounded-xl border-l-4 border-purple-500 shadow-md">
                     <div class="flex justify-between mb-2">

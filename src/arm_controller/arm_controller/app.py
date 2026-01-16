@@ -52,6 +52,14 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "robot_poses.db")
 STATE_FILE = os.path.join(os.path.dirname(__file__), "last_position.json")
 
 SERVO_CONFIG = {
+    "b": {
+        "channel": 0,
+        "type": "standard",
+        "min": 1000,
+        "max": 2000,
+        "range": 270,
+        "start_angle": 90,
+    },
     "s": {
         "channel": 1,
         "type": "standard",
@@ -96,7 +104,7 @@ SERVO_CONFIG = {
 
 # Mapping from web UI servo numbers to internal names
 SERVO_MAPPING = {
-    1: "s",  # Base (not configured yet, but reserved)
+    1: "b",  # Base
     2: "s",  # Shoulder
     3: "e",  # Elbow
     4: "f",  # Forearm
@@ -119,6 +127,7 @@ def save_current_position():
     try:
         with arm_lock:
             position = {
+                "s1": current_position.get("b", SERVO_CONFIG["b"]["start_angle"]),
                 "s2": current_position.get("s", SERVO_CONFIG["s"]["start_angle"]),
                 "s3": current_position.get("e", SERVO_CONFIG["e"]["start_angle"]),
                 "s4": current_position.get("f", SERVO_CONFIG["f"]["start_angle"]),
@@ -166,6 +175,7 @@ def init_database():
         CREATE TABLE IF NOT EXISTS poses (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
+            s1 INTEGER NOT NULL,
             s2 INTEGER NOT NULL,
             s3 INTEGER NOT NULL,
             s4 INTEGER NOT NULL,
@@ -195,6 +205,15 @@ def init_database():
     except sqlite3.OperationalError:
         print("[DATABASE] Migrating: Adding is_admin column to users table")
         cursor.execute("ALTER TABLE users ADD COLUMN is_admin BOOLEAN DEFAULT 0")
+        conn.commit()
+        print("[DATABASE] Migration complete")
+
+    # Migration: Add s1 column to poses table if it doesn't exist
+    try:
+        cursor.execute("SELECT s1 FROM poses LIMIT 1")
+    except sqlite3.OperationalError:
+        print("[DATABASE] Migrating: Adding s1 column to poses table")
+        cursor.execute("ALTER TABLE poses ADD COLUMN s1 INTEGER DEFAULT 135")
         conn.commit()
         print("[DATABASE] Migration complete")
 
@@ -537,6 +556,7 @@ def get_saved_poses():
                     "id": row["id"],
                     "name": row["name"],
                     "state": {
+                        "s1": row["s1"],
                         "s2": row["s2"],
                         "s3": row["s3"],
                         "s4": row["s4"],
@@ -569,11 +589,12 @@ def save_pose():
         cursor = conn.cursor()
         cursor.execute(
             """
-            INSERT INTO poses (name, s2, s3, s4, s5, s6)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO poses (name, s1, s2, s3, s4, s5, s6)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 name,
+                state.get("s1", 90),
                 state.get("s2", 90),
                 state.get("s3", 90),
                 state.get("s4", 80),

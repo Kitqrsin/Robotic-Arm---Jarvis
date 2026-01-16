@@ -3,17 +3,18 @@ const API_BASE = window.location.origin;
 
 // --- State ---
 let armState = {
-    s2: 94, // Shoulder
-    s3: 94, // Elbow
-    s4: 72, // Forearm
-    s5: 60, // Wrist
-    s6: 45  // Gripper
+    s1: 90, // Base
+    s2: 94,  // Shoulder
+    s3: 94,  // Elbow
+    s4: 72,  // Forearm
+    s5: 60,  // Wrist
+    s6: 45   // Gripper
 };
 
 let isConnected = false;
 let oeEnabled = false;  // Track OE pin state
-let servoSpeeds = { s2: 100, s3: 100, s4: 100, s5: 100, s6: 100 };  // Individual servo speeds (ms delay per degree)
-let isMoving = { s2: false, s3: false, s4: false, s5: false, s6: false };  // Per-motor movement locks
+let servoSpeeds = { s1: 100, s2: 100, s3: 100, s4: 100, s5: 100, s6: 100 };  // Individual servo speeds (ms delay per degree)
+let isMoving = { s1: false, s2: false, s3: false, s4: false, s5: false, s6: false };  // Per-motor movement locks
 let chainQueue = [];  // Poses in chain (max 5)
 let isChainRunning = false;  // Chain execution state
 
@@ -64,6 +65,7 @@ async function loadLastPosition() {
             const position = data.position;
             
             // Update armState
+            armState.s1 = position.s1 || 90;
             armState.s2 = position.s2 || 94;
             armState.s3 = position.s3 || 94;
             armState.s4 = position.s4 || 72;
@@ -114,8 +116,9 @@ async function toggleOE() {
             // Safety: Reset sliders to initial positions when motors are enabled
             if (data.oe_enabled) {
                 const initialPositions = {
-                    s2: 94, // Shoulder
-                    s3: 94, // Elbow
+                    s1: 90, // Base
+                    s2: 94,  // Shoulder
+                    s3: 94,  // Elbow
                     s4: 72,  // Forearm
                     s5: 60,  // Wrist
                     s6: 45   // Gripper

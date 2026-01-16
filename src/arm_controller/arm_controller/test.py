@@ -22,8 +22,15 @@ except ImportError:
 OE_PIN = 17
 
 SERVO_CONFIG = {
-    # BASE: Continuous Rotation (360).
-    # 'base': {'channel': 0, 'type': 'continuous', 'min': 500, 'max': 2500},
+    # BASE: Standard 270-degree servo
+    "b": {
+        "channel": 0,
+        "type": "standard",
+        "min": 1000,
+        "max": 2000,
+        "range": 270,
+        "start_angle": 135,
+    },
     # ARM JOINTS: Standard Positional Servos (Angles).
     "s": {
         "channel": 1,

@@ -27,16 +27,18 @@ for channel in active_channels:
         # but for centering, standard is usually fine.
         s = servo.Servo(pca.channels[channel], min_pulse=500, max_pulse=2500)
 
-        # If you have a 360 degree servo for the base,
-        # we need to tell Python the range is wider.
+        # Set actuation range based on servo type
+        # Channel 0 (base) is 270 degrees, others are 180 degrees
         if channel == 0:
-            s.actuation_range = 360
-            # Note: For a 360 servo, "90" might not be center.
-            # Center is usually 180. Change below if needed.
-
-        s.angle = 90
+            s.actuation_range = 270
+            center_angle = 135  # Center for 270° servo
+        else:
+            s.actuation_range = 180
+            center_angle = 90  # Center for 180° servo
+        
+        s.angle = center_angle
         my_servos.append(s)
-        print(f"Channel {channel} -> SET to 90°")
+        print(f"Channel {channel} -> SET to {center_angle}°")
 
     except Exception as e:
         print(f"Error on channel {channel}: {e}")
