@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,6 +8,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
+
 <body class="bg-slate-900 text-slate-100 font-sans min-h-screen flex flex-col">
 
     <!-- Header -->
@@ -21,21 +23,26 @@
             </div>
             <div class="flex items-center space-x-4">
                 <div class="hidden md:flex flex-col text-right text-xs text-slate-400">
-                    <span>Status: <span id="status-indicator" class="text-emerald-400 font-bold">CONNECTING...</span></span>
+                    <span>Status: <span id="status-indicator"
+                            class="text-emerald-400 font-bold">CONNECTING...</span></span>
                     <span>Motors: <span id="oe-status" class="text-red-400 font-bold">DISABLED</span></span>
                 </div>
                 {% if username == 'admin' %}
-                <a href="/register" class="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded shadow-lg font-semibold transition-colors">
+                <a href="/register"
+                    class="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded shadow-lg font-semibold transition-colors">
                     + Create User
                 </a>
                 {% endif %}
-                <button id="oe-toggle-btn" onclick="toggleOE()" class="bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded shadow-lg font-bold transition-colors">
+                <button id="oe-toggle-btn" onclick="toggleOE()"
+                    class="bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded shadow-lg font-bold transition-colors">
                     ENABLE MOTORS
                 </button>
-                <button onclick="emergencyStop()" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded shadow-lg font-bold transition-colors animate-pulse">
+                <button onclick="emergencyStop()"
+                    class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded shadow-lg font-bold transition-colors animate-pulse">
                     STOP
                 </button>
-                <a href="/logout" class="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded shadow-lg font-semibold transition-colors">
+                <a href="/logout"
+                    class="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded shadow-lg font-semibold transition-colors">
                     Logout
                 </a>
             </div>
@@ -45,16 +52,18 @@
     <!-- Main Content -->
     <main class="flex-grow p-4 md:p-6 overflow-y-auto">
         <div class="max-w-4xl mx-auto space-y-6">
-            
+
             <!-- Servo Sliders -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <!-- Servo 1: Base -->
                 <div class="bg-slate-800 p-4 rounded-xl border-l-4 border-blue-500 shadow-md">
                     <div class="flex justify-between mb-2">
                         <label class="font-bold text-blue-200">Base</label>
-                        <span id="val-s1" class="font-mono bg-slate-900 px-2 rounded text-blue-400">135°</span>
+                        <span id="val-s1" class="font-mono bg-slate-900 px-2 rounded text-blue-400">98°</span>
                     </div>
-                    <input type="range" id="s1" min="0" max="270" value="135" oninput="document.getElementById('val-s1').innerText = this.value + '°'" onchange="updateArm(1, this.value)">
+                    <input type="range" id="s1" min="0" max="270" value="98"
+                        oninput="document.getElementById('val-s1').innerText = this.value + '°'"
+                        onchange="updateArm(1, this.value)">
                     <div class="flex justify-between text-xs text-slate-500 mt-1">
                         <span>0°</span>
                         <span>270°</span>
@@ -65,7 +74,8 @@
                             <span class="text-xs text-slate-400">Speed:</span>
                             <span id="speed-val-s1" class="text-xs text-blue-300 font-mono">100ms</span>
                         </div>
-                        <input type="range" id="speed-s1" min="10" max="500" value="100" step="10" oninput="updateServoSpeed(1, this.value)" class="w-full h-1">
+                        <input type="range" id="speed-s1" min="10" max="500" value="100" step="10"
+                            oninput="updateServoSpeed(1, this.value)" class="w-full h-1">
                     </div>
                 </div>
 
@@ -73,9 +83,11 @@
                 <div class="bg-slate-800 p-4 rounded-xl border-l-4 border-purple-500 shadow-md">
                     <div class="flex justify-between mb-2">
                         <label class="font-bold text-purple-200">Shoulder</label>
-                        <span id="val-s2" class="font-mono bg-slate-900 px-2 rounded text-purple-400">94°</span>
+                        <span id="val-s2" class="font-mono bg-slate-900 px-2 rounded text-purple-400">98°</span>
                     </div>
-                    <input type="range" id="s2" min="0" max="180" value="94" oninput="document.getElementById('val-s2').innerText = this.value + '°'" onchange="updateArm(2, this.value)">
+                    <input type="range" id="s2" min="0" max="180" value="98"
+                        oninput="document.getElementById('val-s2').innerText = this.value + '°'"
+                        onchange="updateArm(2, this.value)">
                     <div class="flex justify-between text-xs text-slate-500 mt-1">
                         <span>0°</span>
                         <span>180°</span>
@@ -86,7 +98,8 @@
                             <span class="text-xs text-slate-400">Speed:</span>
                             <span id="speed-val-s2" class="text-xs text-purple-300 font-mono">100ms</span>
                         </div>
-                        <input type="range" id="speed-s2" min="10" max="500" value="100" step="10" oninput="updateServoSpeed(2, this.value)" class="w-full h-1">
+                        <input type="range" id="speed-s2" min="10" max="500" value="100" step="10"
+                            oninput="updateServoSpeed(2, this.value)" class="w-full h-1">
                     </div>
                 </div>
 
@@ -94,9 +107,11 @@
                 <div class="bg-slate-800 p-4 rounded-xl border-l-4 border-cyan-500 shadow-md">
                     <div class="flex justify-between mb-2">
                         <label class="font-bold text-cyan-200">Elbow</label>
-                        <span id="val-s3" class="font-mono bg-slate-900 px-2 rounded text-cyan-400">94°</span>
+                        <span id="val-s3" class="font-mono bg-slate-900 px-2 rounded text-cyan-400">96°</span>
                     </div>
-                    <input type="range" id="s3" min="0" max="180" value="94" oninput="document.getElementById('val-s3').innerText = this.value + '°'" onchange="updateArm(3, this.value)">
+                    <input type="range" id="s3" min="0" max="180" value="96"
+                        oninput="document.getElementById('val-s3').innerText = this.value + '°'"
+                        onchange="updateArm(3, this.value)">
                     <div class="flex justify-between text-xs text-slate-500 mt-1">
                         <span>0°</span>
                         <span>180°</span>
@@ -107,7 +122,8 @@
                             <span class="text-xs text-slate-400">Speed:</span>
                             <span id="speed-val-s3" class="text-xs text-cyan-300 font-mono">100ms</span>
                         </div>
-                        <input type="range" id="speed-s3" min="10" max="500" value="100" step="10" oninput="updateServoSpeed(3, this.value)" class="w-full h-1">
+                        <input type="range" id="speed-s3" min="10" max="500" value="100" step="10"
+                            oninput="updateServoSpeed(3, this.value)" class="w-full h-1">
                     </div>
                 </div>
 
@@ -115,9 +131,11 @@
                 <div class="bg-slate-800 p-4 rounded-xl border-l-4 border-amber-500 shadow-md">
                     <div class="flex justify-between mb-2">
                         <label class="font-bold text-amber-200">Forearm</label>
-                        <span id="val-s4" class="font-mono bg-slate-900 px-2 rounded text-amber-400">72°</span>
+                        <span id="val-s4" class="font-mono bg-slate-900 px-2 rounded text-amber-400">70°</span>
                     </div>
-                    <input type="range" id="s4" min="0" max="180" value="72" oninput="document.getElementById('val-s4').innerText = this.value + '°'" onchange="updateArm(4, this.value)">
+                    <input type="range" id="s4" min="0" max="180" value="70"
+                        oninput="document.getElementById('val-s4').innerText = this.value + '°'"
+                        onchange="updateArm(4, this.value)">
                     <div class="flex justify-between text-xs text-slate-500 mt-1">
                         <span>0°</span>
                         <span>180°</span>
@@ -128,7 +146,8 @@
                             <span class="text-xs text-slate-400">Speed:</span>
                             <span id="speed-val-s4" class="text-xs text-amber-300 font-mono">100ms</span>
                         </div>
-                        <input type="range" id="speed-s4" min="10" max="500" value="100" step="10" oninput="updateServoSpeed(4, this.value)" class="w-full h-1">
+                        <input type="range" id="speed-s4" min="10" max="500" value="100" step="10"
+                            oninput="updateServoSpeed(4, this.value)" class="w-full h-1">
                     </div>
                 </div>
 
@@ -138,7 +157,9 @@
                         <label class="font-bold text-pink-200">Wrist</label>
                         <span id="val-s5" class="font-mono bg-slate-900 px-2 rounded text-pink-400">60°</span>
                     </div>
-                    <input type="range" id="s5" min="0" max="180" value="60" oninput="document.getElementById('val-s5').innerText = this.value + '°'" onchange="updateArm(5, this.value)">
+                    <input type="range" id="s5" min="0" max="180" value="60"
+                        oninput="document.getElementById('val-s5').innerText = this.value + '°'"
+                        onchange="updateArm(5, this.value)">
                     <div class="flex justify-between text-xs text-slate-500 mt-1">
                         <span>0°</span>
                         <span>180°</span>
@@ -149,7 +170,8 @@
                             <span class="text-xs text-slate-400">Speed:</span>
                             <span id="speed-val-s5" class="text-xs text-pink-300 font-mono">100ms</span>
                         </div>
-                        <input type="range" id="speed-s5" min="10" max="500" value="100" step="10" oninput="updateServoSpeed(5, this.value)" class="w-full h-1">
+                        <input type="range" id="speed-s5" min="10" max="500" value="100" step="10"
+                            oninput="updateServoSpeed(5, this.value)" class="w-full h-1">
                     </div>
                 </div>
 
@@ -157,12 +179,14 @@
                 <div class="bg-slate-800 p-4 rounded-xl border-l-4 border-red-500 shadow-md">
                     <div class="flex justify-between mb-2">
                         <label class="font-bold text-red-200">Gripper</label>
-                        <span id="val-s6" class="font-mono bg-slate-900 px-2 rounded text-red-400">45°</span>
+                        <span id="val-s6" class="font-mono bg-slate-900 px-2 rounded text-red-400">105°</span>
                     </div>
-                    <input type="range" id="s6" min="0" max="180" value="45" oninput="document.getElementById('val-s6').innerText = this.value + '°'" onchange="updateArm(6, this.value)">
+                    <input type="range" id="s6" min="85" max="135" value="105"
+                        oninput="document.getElementById('val-s6').innerText = this.value + '°'"
+                        onchange="updateArm(6, this.value)">
                     <div class="flex justify-between text-xs text-slate-500 mt-1">
-                        <span>0° (Open)</span>
-                        <span>180° (Closed)</span>
+                        <span>85° (Open)</span>
+                        <span>135° (Closed)</span>
                     </div>
                     <!-- Speed Control for Gripper -->
                     <div class="mt-2 pt-2 border-t border-slate-700">
@@ -170,7 +194,8 @@
                             <span class="text-xs text-slate-400">Speed:</span>
                             <span id="speed-val-s6" class="text-xs text-red-300 font-mono">100ms</span>
                         </div>
-                        <input type="range" id="speed-s6" min="10" max="500" value="100" step="10" oninput="updateServoSpeed(6, this.value)" class="w-full h-1">
+                        <input type="range" id="speed-s6" min="10" max="500" value="100" step="10"
+                            oninput="updateServoSpeed(6, this.value)" class="w-full h-1">
                     </div>
                 </div>
             </div>
@@ -178,12 +203,13 @@
             <!-- Custom Positions Saver -->
             <div class="bg-slate-800 rounded-xl p-4 border border-slate-700 shadow-md">
                 <h3 class="text-lg font-bold text-slate-300 mb-4 border-b border-slate-700 pb-2">Custom Positions</h3>
-                
+
                 <!-- Input Area -->
                 <div class="flex gap-2 mb-4">
-                    <input type="text" id="pose-name-input" placeholder="Enter position name (e.g. 'Pick up Cup')" 
+                    <input type="text" id="pose-name-input" placeholder="Enter position name (e.g. 'Pick up Cup')"
                         class="flex-grow bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500">
-                    <button onclick="saveCurrentPose()" class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded font-semibold transition">
+                    <button onclick="saveCurrentPose()"
+                        class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded font-semibold transition">
                         Save Current
                     </button>
                 </div>
@@ -196,32 +222,38 @@
 
             <!-- Pose Chaining -->
             <div class="bg-slate-800 rounded-xl p-4 border border-purple-700 shadow-md">
-                <h3 class="text-lg font-bold text-purple-300 mb-3 border-b border-purple-700 pb-2 flex items-center gap-2">
+                <h3
+                    class="text-lg font-bold text-purple-300 mb-3 border-b border-purple-700 pb-2 flex items-center gap-2">
                     <span>⛓️ Chain Sequence</span>
                     <span class="text-xs text-slate-400 font-normal">(Max 5 poses)</span>
                 </h3>
-                
+
                 <!-- Chain Queue -->
                 <div id="chain-queue" class="space-y-2 mb-3 max-h-40 overflow-y-auto pr-2">
                     <div class="text-center text-slate-500 text-sm py-3 italic">No poses in chain</div>
                 </div>
-                
+
                 <!-- Chain Controls -->
                 <div class="flex gap-2">
-                    <button id="run-chain-btn" onclick="executeChain()" class="flex-grow bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded font-semibold transition">
+                    <button id="run-chain-btn" onclick="executeChain()"
+                        class="flex-grow bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded font-semibold transition">
                         ▶ Run Chain
                     </button>
-                    <button id="stop-chain-btn" onclick="stopChain()" class="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded font-semibold transition" style="opacity: 0.5;">
+                    <button id="stop-chain-btn" onclick="stopChain()"
+                        class="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded font-semibold transition"
+                        style="opacity: 0.5;">
                         ⏹ Stop
                     </button>
-                    <button onclick="clearChain()" class="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded transition">
+                    <button onclick="clearChain()"
+                        class="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded transition">
                         Clear
                     </button>
                 </div>
             </div>
 
             <!-- Data Output -->
-            <div class="bg-black rounded-lg p-4 font-mono text-xs text-green-500 h-24 overflow-y-auto border border-slate-700 shadow-inner" id="console-log">
+            <div class="bg-black rounded-lg p-4 font-mono text-xs text-green-500 h-24 overflow-y-auto border border-slate-700 shadow-inner"
+                id="console-log">
                 <div class="text-slate-500 border-b border-slate-800 pb-1 mb-2">Command Log</div>
                 <div id="data-stream">Initializing connection...</div>
             </div>
@@ -230,4 +262,5 @@
 
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
+
 </html>

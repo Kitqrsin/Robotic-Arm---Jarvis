@@ -58,7 +58,7 @@ SERVO_CONFIG = {
         "min": 1000,
         "max": 2000,
         "range": 270,
-        "start_angle": 90,
+        "start_angle": 98,
     },
     "s": {
         "channel": 1,
@@ -66,7 +66,7 @@ SERVO_CONFIG = {
         "min": 1000,
         "max": 2000,
         "range": 180,
-        "start_angle": 94,
+        "start_angle": 96,
     },
     "e": {
         "channel": 2,
@@ -74,7 +74,7 @@ SERVO_CONFIG = {
         "min": 1000,
         "max": 2000,
         "range": 180,
-        "start_angle": 94,
+        "start_angle": 98,
     },
     "f": {
         "channel": 4,
@@ -82,7 +82,7 @@ SERVO_CONFIG = {
         "min": 1000,
         "max": 2000,
         "range": 180,
-        "start_angle": 72,
+        "start_angle": 70,
     },
     "w": {
         "channel": 5,
@@ -95,8 +95,8 @@ SERVO_CONFIG = {
     "g": {
         "channel": 6,
         "type": "standard",
-        "min": 1000,
-        "max": 2000,
+        "min": 500,
+        "max": 2500,
         "range": 180,
         "start_angle": 45,
     },
@@ -223,24 +223,32 @@ def init_database():
 
 
 def init_admin():
-    """Create default admin account if it doesn't exist"""
+    """Create or update default admin account"""
     conn = get_db_connection()
     cursor = conn.cursor()
 
     # Check if admin exists
     cursor.execute("SELECT id FROM users WHERE username = ?", ("admin",))
-    if not cursor.fetchone():
+    existing_admin = cursor.fetchone()
+    
+    admin_password_hash = generate_password_hash("256admin")
+    
+    if not existing_admin:
         # Create admin account
-        admin_password_hash = generate_password_hash("3111admin3111")
         cursor.execute(
             "INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, ?)",
             ("admin", admin_password_hash, 1),
         )
-        conn.commit()
         print("[ADMIN] Created default admin account (username: admin)")
     else:
-        print("[ADMIN] Admin account already exists")
+        # Update existing admin password
+        cursor.execute(
+            "UPDATE users SET password_hash = ? WHERE username = ?",
+            (admin_password_hash, "admin")
+        )
+        print("[ADMIN] Updated admin password")
 
+    conn.commit()
     conn.close()
 
 
@@ -684,6 +692,44 @@ def get_last_position():
         return jsonify({"success": True, "position": position})
     else:
         return jsonify({"success": False, "message": "No saved position"})
+
+
+@app.route("/api/initial_positions", methods=["GET"])
+@login_required
+def get_initial_positions():
+    """Get initial positions from database 'reset' pose or fallback to SERVO_CONFIG"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM poses WHERE name = ?", ("reset",))
+        reset_pose = cursor.fetchone()
+        conn.close()
+
+        if reset_pose:
+            # Use database values
+            initial_positions = {
+                "s1": reset_pose["s1"],
+                "s2": reset_pose["s2"],
+                "s3": reset_pose["s3"],
+                "s4": reset_pose["s4"],
+                "s5": reset_pose["s5"],
+                "s6": reset_pose["s6"],
+            }
+            return jsonify({"success": True, "positions": initial_positions, "source": "database"})
+        else:
+            # Fallback to SERVO_CONFIG defaults
+            initial_positions = {
+                "s1": SERVO_CONFIG["b"]["start_angle"],
+                "s2": SERVO_CONFIG["s"]["start_angle"],
+                "s3": SERVO_CONFIG["e"]["start_angle"],
+                "s4": SERVO_CONFIG["f"]["start_angle"],
+                "s5": SERVO_CONFIG["w"]["start_angle"],
+                "s6": SERVO_CONFIG["g"]["start_angle"],
+            }
+            return jsonify({"success": True, "positions": initial_positions, "source": "config"})
+
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 # --- CLEANUP ---

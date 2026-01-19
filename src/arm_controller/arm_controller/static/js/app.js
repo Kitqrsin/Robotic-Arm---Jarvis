@@ -2,14 +2,18 @@
 const API_BASE = window.location.origin;
 
 // --- State ---
+// Initial positions will be loaded from API
 let armState = {
-    s1: 90, // Base
-    s2: 94,  // Shoulder
-    s3: 94,  // Elbow
-    s4: 72,  // Forearm
-    s5: 60,  // Wrist
-    s6: 45   // Gripper
+    s1: 90, // Base - will be updated from API
+    s2: 90,  // Shoulder - will be updated from API
+    s3: 90,  // Elbow - will be updated from API
+    s4: 90,  // Forearm - will be updated from API
+    s5: 90,  // Wrist - will be updated from API
+    s6: 90   // Gripper - will be updated from API
 };
+
+// Store initial positions fetched from database
+let initialPositions = null;
 
 let isConnected = false;
 let oeEnabled = false;  // Track OE pin state
@@ -30,7 +34,7 @@ async function sendServoCommand(servoId, angle) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ angle: angle })
         });
-        
+
         const data = await response.json();
         if (!data.success) {
             console.error('Servo command failed:', data.error);
@@ -56,22 +60,48 @@ async function checkStatus() {
     }
 }
 
+async function loadInitialPositions() {
+    try {
+        const response = await fetch(`${API_BASE}/api/initial_positions`);
+        const data = await response.json();
+
+        if (data.success && data.positions) {
+            initialPositions = data.positions;
+
+            // Update armState with initial positions
+            armState.s1 = initialPositions.s1;
+            armState.s2 = initialPositions.s2;
+            armState.s3 = initialPositions.s3;
+            armState.s4 = initialPositions.s4;
+            armState.s5 = initialPositions.s5;
+            armState.s6 = initialPositions.s6;
+
+            logData(`Initial positions loaded from ${data.source}`);
+            return true;
+        }
+        return false;
+    } catch (error) {
+        console.error('Failed to load initial positions:', error);
+        return false;
+    }
+}
+
 async function loadLastPosition() {
     try {
         const response = await fetch(`${API_BASE}/api/last_position`);
         const data = await response.json();
-        
+
         if (data.success && data.position) {
             const position = data.position;
-            
+
             // Update armState
-            armState.s1 = position.s1 || 90;
-            armState.s2 = position.s2 || 94;
-            armState.s3 = position.s3 || 94;
-            armState.s4 = position.s4 || 72;
-            armState.s5 = position.s5 || 60;
-            armState.s6 = position.s6 || 45;
-            
+            armState.s1 = position.s1 || initialPositions?.s1 || 90;
+            armState.s2 = position.s2 || initialPositions?.s2 || 90;
+            armState.s3 = position.s3 || initialPositions?.s3 || 90;
+            armState.s4 = position.s4 || initialPositions?.s4 || 90;
+            armState.s5 = position.s5 || initialPositions?.s5 || 90;
+            armState.s6 = position.s6 || initialPositions?.s6 || 90;
+
             // Update UI sliders and displays
             for (let key in armState) {
                 const slider = document.getElementById(key);
@@ -81,7 +111,7 @@ async function loadLastPosition() {
                     document.getElementById(`val-s${servoId}`).innerText = armState[key] + '°';
                 }
             }
-            
+
             logData('Loaded last known position');
             return true;
         }
@@ -99,7 +129,7 @@ async function toggleOE() {
         logData('⚠️ Cannot toggle motors during movement', true);
         return;
     }
-    
+
     try {
         const newState = !oeEnabled;
         const response = await fetch(`${API_BASE}/api/oe_toggle`, {
@@ -107,37 +137,34 @@ async function toggleOE() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ enable: newState })
         });
-        
+
         const data = await response.json();
         if (data.success) {
             updateOEStatus(data.oe_enabled);
             logData(data.message);
-            
+
             // Safety: Reset sliders to initial positions when motors are enabled
             if (data.oe_enabled) {
-                const initialPositions = {
-                    s1: 90, // Base
-                    s2: 94,  // Shoulder
-                    s3: 94,  // Elbow
-                    s4: 72,  // Forearm
-                    s5: 60,  // Wrist
-                    s6: 45   // Gripper
-                };
-                
+                // Use initialPositions loaded from database
+                if (!initialPositions) {
+                    logData('⚠️ Initial positions not loaded', true);
+                    return;
+                }
+
                 // Lock all servos
                 const servosToMove = [];
                 for (let key in initialPositions) {
                     const servoId = parseInt(key.substring(1));
                     servosToMove.push(servoId);
                     setMovementLock(servoId, true);
-                    
+
                     const slider = document.getElementById(key);
                     if (slider) {
                         slider.value = initialPositions[key];
                         document.getElementById(`val-s${servoId}`).innerText = initialPositions[key] + '°';
                     }
                 }
-                
+
                 // Move motors gradually to safe positions
                 logData('Moving to safe positions...');
                 const moves = [];
@@ -145,7 +172,7 @@ async function toggleOE() {
                     const servoId = parseInt(key.substring(1));
                     moves.push(moveServoGradually(servoId, initialPositions[key]));
                 }
-                
+
                 try {
                     await Promise.all(moves);
                     logData('Safe position reached');
@@ -167,7 +194,7 @@ function updateOEStatus(enabled) {
     oeEnabled = enabled;
     const statusEl = document.getElementById('oe-status');
     const btnEl = document.getElementById('oe-toggle-btn');
-    
+
     if (enabled) {
         statusEl.textContent = 'ENABLED';
         statusEl.className = 'text-emerald-400 font-bold';
@@ -218,21 +245,21 @@ function lockPoseButtons() {
         saveBtn.disabled = true;
         saveBtn.style.opacity = '0.3';
     }
-    
+
     // Lock all load pose buttons
     const loadBtns = document.querySelectorAll('button[onclick*="applyState"]');
     loadBtns.forEach(btn => {
         btn.disabled = true;
         btn.style.opacity = '0.3';
     });
-    
+
     // Lock delete buttons
     const deleteBtns = document.querySelectorAll('button[onclick*="deletePose"]');
     deleteBtns.forEach(btn => {
         btn.disabled = true;
         btn.style.opacity = '0.3';
     });
-    
+
     // Update chain buttons
     updateChainButtons();
 }
@@ -244,21 +271,21 @@ function unlockPoseButtons() {
         saveBtn.disabled = false;
         saveBtn.style.opacity = '1';
     }
-    
+
     // Unlock all load pose buttons
     const loadBtns = document.querySelectorAll('button[onclick*="applyState"]');
     loadBtns.forEach(btn => {
         btn.disabled = false;
         btn.style.opacity = '1';
     });
-    
+
     // Unlock delete buttons
     const deleteBtns = document.querySelectorAll('button[onclick*="deletePose"]');
     deleteBtns.forEach(btn => {
         btn.disabled = false;
         btn.style.opacity = '1';
     });
-    
+
     // Update chain buttons
     updateChainButtons();
 }
@@ -280,7 +307,7 @@ function updateConnectionStatus(connected) {
 function setMovementLock(servoId, locked) {
     const servoKey = `s${servoId}`;
     isMoving[servoKey] = locked;
-    
+
     const slider = document.getElementById(servoKey);
     if (slider) {
         // Only change slider state if motors are enabled
@@ -290,7 +317,7 @@ function setMovementLock(servoId, locked) {
         }
         // If motors are disabled, keep slider locked (will be set by lockAllSliders)
     }
-    
+
     // Lock pose buttons if ANY servo is moving
     const anyMoving = Object.values(isMoving).some(moving => moving);
     const buttons = document.querySelectorAll('button');
@@ -313,7 +340,7 @@ async function moveServoGradually(servoId, targetAngle) {
     const step = targetAngle > currentAngle ? 1 : -1;
     const servoKey = `s${servoId}`;
     const delay = servoSpeeds[servoKey] || 100;  // Use servo-specific speed
-    
+
     // Move one degree at a time with servo-specific delay
     for (let angle = currentAngle; step > 0 ? angle <= targetAngle : angle >= targetAngle; angle += step) {
         armState[servoKey] = angle;
@@ -324,7 +351,7 @@ async function moveServoGradually(servoId, targetAngle) {
 
 function updateArm(servoId, value) {
     const servoKey = `s${servoId}`;
-    
+
     // Prevent movement if motors are disabled
     if (!oeEnabled) {
         logData(`⚠️ Motors disabled - enable motors first`, true);
@@ -336,7 +363,7 @@ function updateArm(servoId, value) {
         }
         return;
     }
-    
+
     if (isMoving[servoKey]) {
         logData(`⚠️ Servo ${servoId} blocked - still moving`, true);
         // Reset slider to current position
@@ -347,9 +374,9 @@ function updateArm(servoId, value) {
         }
         return;
     }
-    
+
     value = parseInt(value);
-    
+
     // Move gradually to target with per-servo lock
     setMovementLock(servoId, true);
     moveServoGradually(servoId, value)
@@ -370,17 +397,17 @@ async function applyState(newState) {
         logData('⚠️ Motors disabled - enable motors to load pose', true);
         return;
     }
-    
+
     // Check if any servo is currently moving
     const anyMoving = Object.values(isMoving).some(moving => moving);
     if (anyMoving) {
         logData('⚠️ Pose blocked - servos still moving', true);
         return;
     }
-    
+
     const moves = [];
     const servosToMove = [];
-    
+
     for (let key in newState) {
         if (newState[key] !== undefined) {
             const servoId = parseInt(key.substring(1));
@@ -394,7 +421,7 @@ async function applyState(newState) {
             }
         }
     }
-    
+
     try {
         // Execute all moves in parallel
         await Promise.all(moves);
@@ -428,7 +455,7 @@ async function saveCurrentPose() {
         logData('⚠️ Motors disabled - enable motors to save pose', true);
         return;
     }
-    
+
     const nameInput = document.getElementById('pose-name-input');
     const name = nameInput.value.trim();
 
@@ -446,7 +473,7 @@ async function saveCurrentPose() {
                 state: armState
             })
         });
-        
+
         const data = await response.json();
         if (data.success) {
             nameInput.value = '';
@@ -471,13 +498,13 @@ function loadPose(index) {
 async function deletePose(index) {
     const pose = savedPoses[index];
     if (!pose) return;
-    
+
     if (confirm('Delete position "' + pose.name + '"?')) {
         try {
             const response = await fetch(`${API_BASE}/api/saved_poses/${pose.id}`, {
                 method: 'DELETE'
             });
-            
+
             const data = await response.json();
             if (data.success) {
                 logData(`Deleted pose: ${pose.name}`);
@@ -504,11 +531,11 @@ function renderSavedPoses() {
     savedPoses.forEach((pose, index) => {
         const row = document.createElement('div');
         row.className = 'flex items-center justify-between bg-slate-900 p-3 rounded border border-slate-700 group';
-        
+
         const angles = Object.keys(pose.state).map(k => pose.state[k]).join(', ');
         const countInChain = chainQueue.filter(p => p.id === pose.id).length;
         const chainBadge = countInChain > 0 ? ` <span class="text-purple-400 font-bold">×${countInChain}</span>` : '';
-        
+
         row.innerHTML = `
             <div class="flex flex-col">
                 <span class="font-semibold text-slate-200">${pose.name}${chainBadge}</span>
@@ -532,7 +559,7 @@ async function emergencyStop() {
             method: 'POST'
         });
         const data = await response.json();
-        
+
         if (data.success) {
             logData('!!! EMERGENCY STOP !!!', true);
             alert("EMERGENCY STOP: All servos disabled.");
@@ -548,13 +575,13 @@ function logData(message, isError = false) {
     const date = new Date();
     const time = date.toLocaleTimeString();
     const dataStr = `[${time}] ${message}`;
-    
+
     const consoleDiv = document.getElementById('data-stream');
     const newEntry = document.createElement('div');
     newEntry.innerText = dataStr;
     if (isError) newEntry.className = 'text-red-500 font-bold';
     consoleDiv.insertBefore(newEntry, consoleDiv.firstChild);
-    
+
     if (consoleDiv.children.length > 20) {
         consoleDiv.removeChild(consoleDiv.lastChild);
     }
@@ -564,16 +591,16 @@ function logData(message, isError = false) {
 function addToChain(index) {
     const pose = savedPoses[index];
     if (!pose) return;
-    
+
     // Allow duplicates - just add to chain
     if (chainQueue.length >= 5) {
         alert('Maximum 5 poses in chain');
         return;
     }
-    
+
     chainQueue.push(pose);
     logData(`Added "${pose.name}" to chain (${chainQueue.length}/5)`);
-    
+
     renderSavedPoses();
     renderChainQueue();
 }
@@ -597,12 +624,12 @@ function clearChain() {
 function renderChainQueue() {
     const chainEl = document.getElementById('chain-queue');
     if (!chainEl) return;
-    
+
     if (chainQueue.length === 0) {
         chainEl.innerHTML = '<div class="text-center text-slate-500 text-sm py-3 italic">No poses in chain</div>';
         return;
     }
-    
+
     chainEl.innerHTML = chainQueue.map((pose, index) => `
         <div class="flex items-center justify-between bg-slate-900 p-2 rounded border border-purple-700">
             <div class="flex items-center gap-2">
@@ -619,44 +646,44 @@ async function executeChain() {
         logData('⚠️ Motors disabled - enable motors to run chain', true);
         return;
     }
-    
+
     if (chainQueue.length === 0) {
         logData('⚠️ Chain is empty', true);
         return;
     }
-    
+
     if (isChainRunning) {
         logData('⚠️ Chain already running', true);
         return;
     }
-    
+
     const anyMoving = Object.values(isMoving).some(moving => moving);
     if (anyMoving) {
         logData('⚠️ Wait for current movement to finish', true);
         return;
     }
-    
+
     isChainRunning = true;
     updateChainButtons();
     logData(`▶ Starting chain (${chainQueue.length} poses)`);
-    
+
     try {
         for (let i = 0; i < chainQueue.length; i++) {
             if (!isChainRunning) {
                 logData('Chain stopped by user');
                 break;
             }
-            
+
             const pose = chainQueue[i];
             logData(`[${i + 1}/${chainQueue.length}] Moving to "${pose.name}"`);
             await applyState(pose.state);
-            
+
             // Wait a bit between poses (optional delay)
             if (i < chainQueue.length - 1) {
                 await new Promise(resolve => setTimeout(resolve, 500));
             }
         }
-        
+
         logData('✓ Chain completed');
     } catch (err) {
         console.error('Chain execution error:', err);
@@ -677,12 +704,12 @@ function stopChain() {
 function updateChainButtons() {
     const runBtn = document.getElementById('run-chain-btn');
     const stopBtn = document.getElementById('stop-chain-btn');
-    
+
     if (runBtn && stopBtn) {
         // Stop button always enabled for emergency use
         stopBtn.disabled = false;
         stopBtn.style.opacity = isChainRunning ? '1' : '0.5';
-        
+
         // Run button disabled during execution or when conditions not met
         if (isChainRunning) {
             runBtn.disabled = true;
@@ -696,14 +723,26 @@ function updateChainButtons() {
 
 // --- Initialization ---
 async function init() {
-    await loadLastPosition();  // Load last position first
+    await loadInitialPositions();  // Load initial positions from database first
+    await loadLastPosition();  // Load last position second
+
+    // Update UI sliders with current armState
+    for (let key in armState) {
+        const slider = document.getElementById(key);
+        const servoId = parseInt(key.substring(1));
+        if (slider) {
+            slider.value = armState[key];
+            document.getElementById(`val-s${servoId}`).innerText = armState[key] + '°';
+        }
+    }
+
     await checkStatus();
     await loadSavedPoses();  // Load from database
     renderChainQueue();  // Render empty chain UI
-    
+
     // Poll status every 5 seconds
     setInterval(checkStatus, 5000);
-    
+
     logData('Web UI initialized');
 }
 
