@@ -22,6 +22,10 @@ let isMoving = { s1: false, s2: false, s3: false, s4: false, s5: false, s6: fals
 let chainQueue = [];  // Poses in chain (max 5)
 let isChainRunning = false;  // Chain execution state
 
+// Debounce timers for slider input - prevents flooding server with requests
+let sliderDebounceTimers = { s1: null, s2: null, s3: null, s4: null, s5: null, s6: null };
+const SLIDER_DEBOUNCE_MS = 300;  // Wait 300ms after slider stops moving before sending request
+
 // Saved poses now loaded from server
 let savedPoses = [];
 
@@ -377,17 +381,25 @@ function updateArm(servoId, value) {
 
     value = parseInt(value);
 
-    // Move gradually to target with per-servo lock
-    setMovementLock(servoId, true);
-    moveServoGradually(servoId, value)
-        .then(() => {
-            setMovementLock(servoId, false);
-            logData(`Servo ${servoId} → ${value}° complete`);
-        })
-        .catch(err => {
-            setMovementLock(servoId, false);
-            console.error('Movement error:', err);
-        });
+    // Clear any existing debounce timer for this servo
+    if (sliderDebounceTimers[servoKey]) {
+        clearTimeout(sliderDebounceTimers[servoKey]);
+    }
+
+    // Set new debounce timer - only execute after user stops moving slider
+    sliderDebounceTimers[servoKey] = setTimeout(() => {
+        // Move gradually to target with per-servo lock
+        setMovementLock(servoId, true);
+        moveServoGradually(servoId, value)
+            .then(() => {
+                setMovementLock(servoId, false);
+                logData(`Servo ${servoId} → ${value}° complete`);
+            })
+            .catch(err => {
+                setMovementLock(servoId, false);
+                console.error('Movement error:', err);
+            });
+    }, SLIDER_DEBOUNCE_MS);
 }
 
 // Apply a full state object to the arm
@@ -521,32 +533,50 @@ async function deletePose(index) {
 
 function renderSavedPoses() {
     const listEl = document.getElementById('saved-poses-list');
+    if (!listEl) return;
     listEl.innerHTML = '';
 
     if (savedPoses.length === 0) {
-        listEl.innerHTML = '<div class="text-center text-slate-500 text-sm py-4 italic">No saved positions yet.</div>';
+        listEl.innerHTML = '<div class="text-center text-slate-500 text-xs py-3 italic">No saved positions yet.</div>';
         return;
     }
 
     savedPoses.forEach((pose, index) => {
         const row = document.createElement('div');
-        row.className = 'flex items-center justify-between bg-slate-900 p-3 rounded border border-slate-700 group';
+        row.className = 'glass p-3 rounded-lg border border-slate-700/30 hover:border-blue-500/30 transition-all group';
 
-        const angles = Object.keys(pose.state).map(k => pose.state[k]).join(', ');
+        // Format degrees display cleanly
+        const degrees = `${pose.state.s1}° ${pose.state.s2}° ${pose.state.s3}° ${pose.state.s4}° ${pose.state.s5}° ${pose.state.s6}°`;
         const countInChain = chainQueue.filter(p => p.id === pose.id).length;
-        const chainBadge = countInChain > 0 ? ` <span class="text-purple-400 font-bold">×${countInChain}</span>` : '';
+        const chainBadge = countInChain > 0 ? `<span class="chain-badge ml-2">×${countInChain}</span>` : '';
 
         row.innerHTML = `
-            <div class="flex flex-col">
-                <span class="font-semibold text-slate-200">${pose.name}${chainBadge}</span>
-                <span class="text-xs text-slate-500 font-mono">${angles}</span>
-            </div>
-            <div class="flex gap-2">
-                <button onclick="addToChain(${index})" class="bg-purple-600 hover:bg-purple-500 text-white text-xs px-3 py-2 rounded transition" title="Add to chain">
-                    + Chain
-                </button>
-                <button onclick="loadPose(${index})" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-3 py-2 rounded transition">Load</button>
-                <button onclick="deletePose(${index})" class="bg-slate-700 hover:bg-red-600 text-slate-300 text-xs px-3 py-2 rounded transition" title="Delete">✕</button>
+            <div class="flex items-start justify-between gap-3">
+                <div class="flex-grow min-w-0">
+                    <div class="flex items-center gap-2 mb-1">
+                        <button onclick="loadPose(${index})" class="text-sm font-semibold text-slate-200 hover:text-blue-400 text-left truncate transition-colors">
+                            ${pose.name}
+                        </button>
+                        ${chainBadge}
+                    </div>
+                    <div class="text-xs text-slate-500 font-mono">
+                        ${degrees}
+                    </div>
+                </div>
+                <div class="flex gap-1 flex-shrink-0">
+                    <button onclick="addToChain(${index})" 
+                        class="bg-purple-600/20 hover:bg-purple-600/40 border border-purple-500/30 text-purple-300 text-xs px-2 py-1 rounded transition-all"
+                        title="Add to chain">
+                        +
+                    </button>
+                    <button onclick="deletePose(${index})" 
+                        class="bg-red-600/20 hover:bg-red-600 border border-red-500/30 hover:border-red-500 text-red-400 hover:text-white p-1.5 rounded transition-all transform hover:scale-110"
+                        title="Delete">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
             </div>
         `;
         listEl.appendChild(row);
@@ -626,17 +656,17 @@ function renderChainQueue() {
     if (!chainEl) return;
 
     if (chainQueue.length === 0) {
-        chainEl.innerHTML = '<div class="text-center text-slate-500 text-sm py-3 italic">No poses in chain</div>';
+        chainEl.innerHTML = '<div class="text-center text-slate-500 text-sm py-4 italic">No poses in chain</div>';
         return;
     }
 
     chainEl.innerHTML = chainQueue.map((pose, index) => `
-        <div class="flex items-center justify-between bg-slate-900 p-2 rounded border border-purple-700">
-            <div class="flex items-center gap-2">
-                <span class="text-purple-400 font-bold text-sm">${index + 1}.</span>
-                <span class="text-slate-200 text-sm">${pose.name}</span>
+        <div class="flex items-center justify-between bg-white/5 p-2 rounded-lg border border-purple-500/20 mb-2 last:mb-0 hover:bg-white/10 transition-colors">
+            <div class="flex items-center gap-3">
+                <span class="flex items-center justify-center w-5 h-5 rounded-full bg-purple-500/20 text-purple-300 text-xs font-bold border border-purple-500/30">${index + 1}</span>
+                <span class="text-slate-200 text-sm font-medium">${pose.name}</span>
             </div>
-            <button onclick="removeFromChain(${index})" class="text-slate-400 hover:text-red-400 text-sm px-2" title="Remove">✕</button>
+            <button onclick="removeFromChain(${index})" class="text-slate-400 hover:text-red-400 p-1 hover:bg-white/10 rounded transition-all" title="Remove">✕</button>
         </div>
     `).join('');
 }
