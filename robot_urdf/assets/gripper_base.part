@@ -1,0 +1,13 @@
+{
+    "configuration": "default",
+    "documentId": "93be7c15a633252e37868d3e",
+    "documentMicroversion": "002a88ad9e824929d2183146",
+    "elementId": "f2225e2a55af0ccdb9db8569",
+    "fullConfiguration": "default",
+    "id": "MfQhi9xvsnfmGQEox",
+    "isStandardContent": false,
+    "name": "Gripper Base <1>",
+    "partId": "JFD",
+    "suppressed": false,
+    "type": "Part"
+}

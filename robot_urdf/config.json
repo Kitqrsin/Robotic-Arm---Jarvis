@@ -1,0 +1,9 @@
+{
+  "documentId": "93be7c15a633252e37868d3e",
+  "assemblyName": "Assembly 1",
+  "outputFormat": "urdf",
+  "drawFrames": true,
+  "jointMaxEffort": 2.5,
+  "jointMaxVelocity": 5.0,
+  "packageName": "my_robot_description"
+}

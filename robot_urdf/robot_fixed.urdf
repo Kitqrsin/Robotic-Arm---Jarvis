@@ -1,0 +1,1613 @@
+<?xml version="1.0" ?>
+<!-- Generated using onshape-to-robot -->
+<!-- Onshape document_id: 93be7c15a633252e37868d3e -->
+<robot name="robot_urdf">
+  <!-- Link compound -->
+  <link name="compound">
+    <inertial>
+      <origin xyz="0.00471375 -0.00223051 0.00931776" rpy="0 0 0"/>
+      <mass value="0.141675"/>
+      <inertia ixx="0.000124095" ixy="5.08549e-07" ixz="-2.01936e-05" iyy="0.000117081" iyz="6.72234e-07" izz="0.000128378"/>
+    </inertial>
+    <!-- Part compound -->
+    <visual>
+      <origin xyz="0.0284017 -0.00137038 0.0437971" rpy="2.65119e-07 1.10147e-08 1.95834e-09"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound.stl"/>
+      </geometry>
+      <material name="compound_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0284017 -0.00137038 0.0437971" rpy="2.65119e-07 1.10147e-08 1.95834e-09"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part part_1 -->
+    <visual>
+      <origin xyz="-0.000301678 -0.00196578 -0.000935187" rpy="-1.5708 -1.5708 0"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/part_1.stl"/>
+      </geometry>
+      <material name="part_1_material">
+        <color rgba="0.501961 0.501961 0.501961 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.000301678 -0.00196578 -0.000935187" rpy="-1.5708 -1.5708 0"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/part_1.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_2 -->
+    <visual>
+      <origin xyz="0.0284017 -0.00137038 0.0437971" rpy="2.65119e-07 1.10147e-08 1.95834e-09"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__2.stl"/>
+      </geometry>
+      <material name="compound_2_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0284017 -0.00137038 0.0437971" rpy="2.65119e-07 1.10147e-08 1.95834e-09"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__2.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_3 -->
+    <visual>
+      <origin xyz="0.0284017 -0.00137038 0.0437971" rpy="2.65119e-07 1.10147e-08 1.95834e-09"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__3.stl"/>
+      </geometry>
+      <material name="compound_3_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0284017 -0.00137038 0.0437971" rpy="2.65119e-07 1.10147e-08 1.95834e-09"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__3.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_4 -->
+    <visual>
+      <origin xyz="0.0284017 -0.00137038 0.0437971" rpy="2.65119e-07 1.10147e-08 1.95834e-09"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__4.stl"/>
+      </geometry>
+      <material name="compound_4_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0284017 -0.00137038 0.0437971" rpy="2.65119e-07 1.10147e-08 1.95834e-09"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__4.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_5 -->
+    <visual>
+      <origin xyz="0.0284017 -0.00137038 0.0437971" rpy="2.65119e-07 1.10147e-08 1.95834e-09"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__5.stl"/>
+      </geometry>
+      <material name="compound_5_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0284017 -0.00137038 0.0437971" rpy="2.65119e-07 1.10147e-08 1.95834e-09"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__5.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_6 -->
+    <visual>
+      <origin xyz="0.0284017 -0.00137038 0.0437971" rpy="2.65119e-07 1.10147e-08 1.95834e-09"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__6.stl"/>
+      </geometry>
+      <material name="compound_6_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0284017 -0.00137038 0.0437971" rpy="2.65119e-07 1.10147e-08 1.95834e-09"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__6.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part open_cascade_step_translator_6_7_1 -->
+    <visual>
+      <origin xyz="0.0177559 -0.0119063 0.0316549" rpy="-1.5708 1.10147e-08 1.95834e-09"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/open_cascade_step_translator_6_7_1.stl"/>
+      </geometry>
+      <material name="open_cascade_step_translator_6_7_1_material">
+        <color rgba="0.615686 0.811765 0.929412 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0177559 -0.0119063 0.0316549" rpy="-1.5708 1.10147e-08 1.95834e-09"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/open_cascade_step_translator_6_7_1.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part part_1_2 -->
+    <visual>
+      <origin xyz="-0.00230168 -0.00196578 -0.000935187" rpy="1.5708 -1.5708 0"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/part_1.stl"/>
+      </geometry>
+      <material name="part_1_2_material">
+        <color rgba="0.501961 0.501961 0.501961 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.00230168 -0.00196578 -0.000935187" rpy="1.5708 -1.5708 0"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/part_1.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_7 -->
+    <visual>
+      <origin xyz="0.0284017 -0.00137038 0.0437971" rpy="2.65119e-07 1.10147e-08 1.95834e-09"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__7.stl"/>
+      </geometry>
+      <material name="compound_7_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0284017 -0.00137038 0.0437971" rpy="2.65119e-07 1.10147e-08 1.95834e-09"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__7.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_8 -->
+    <visual>
+      <origin xyz="0.0284017 -0.00137038 0.0437971" rpy="2.65119e-07 1.10147e-08 1.95834e-09"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__8.stl"/>
+      </geometry>
+      <material name="compound_8_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0284017 -0.00137038 0.0437971" rpy="2.65119e-07 1.10147e-08 1.95834e-09"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__8.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_9 -->
+    <visual>
+      <origin xyz="0.0284017 -0.00137038 0.0437971" rpy="2.65119e-07 1.10147e-08 1.95834e-09"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__9.stl"/>
+      </geometry>
+      <material name="compound_9_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0284017 -0.00137038 0.0437971" rpy="2.65119e-07 1.10147e-08 1.95834e-09"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__9.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_10 -->
+    <visual>
+      <origin xyz="0.0284017 -0.00137038 0.0437971" rpy="2.65119e-07 1.10147e-08 1.95834e-09"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__10.stl"/>
+      </geometry>
+      <material name="compound_10_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0284017 -0.00137038 0.0437971" rpy="2.65119e-07 1.10147e-08 1.95834e-09"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__10.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_11 -->
+    <visual>
+      <origin xyz="0.0284017 -0.00137038 0.0437971" rpy="2.65119e-07 1.10147e-08 1.95834e-09"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__11.stl"/>
+      </geometry>
+      <material name="compound_11_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0284017 -0.00137038 0.0437971" rpy="2.65119e-07 1.10147e-08 1.95834e-09"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__11.stl"/>
+      </geometry>
+    </collision>
+  </link>
+  <!-- Link servo_disc -->
+  <link name="servo_disc">
+    <inertial>
+      <origin xyz="-0.0020343 0.010051 0.0103927" rpy="0 0 0"/>
+      <mass value="0.0428428"/>
+      <inertia ixx="8.43749e-06" ixy="1.08974e-07" ixz="9.61403e-08" iyy="7.41387e-06" iyz="-6.81338e-08" izz="1.22634e-05"/>
+    </inertial>
+    <!-- Part compound_12 -->
+    <visual>
+      <origin xyz="-0.0126608 0.0201484 0.0116133" rpy="-1.58825 2.20431e-16 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__6.stl"/>
+      </geometry>
+      <material name="compound_12_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.0126608 0.0201484 0.0116133" rpy="-1.58825 2.20431e-16 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__6.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_13 -->
+    <visual>
+      <origin xyz="-0.0126608 0.0201484 0.0116133" rpy="-1.58825 2.20431e-16 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__9.stl"/>
+      </geometry>
+      <material name="compound_13_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.0126608 0.0201484 0.0116133" rpy="-1.58825 2.20431e-16 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__9.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_14 -->
+    <visual>
+      <origin xyz="-0.0126608 0.0201484 0.0116133" rpy="-1.58825 2.20431e-16 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__10.stl"/>
+      </geometry>
+      <material name="compound_14_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.0126608 0.0201484 0.0116133" rpy="-1.58825 2.20431e-16 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__10.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part servo_disc -->
+    <visual>
+      <origin xyz="-3.46945e-18 0 0" rpy="-1.5708 -3.15226e-23 3.52296e-17"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/servo_disc.stl"/>
+      </geometry>
+      <material name="servo_disc_material">
+        <color rgba="0.898039 0.921569 0.929412 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-3.46945e-18 0 0" rpy="-1.5708 -3.15226e-23 3.52296e-17"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/servo_disc.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_15 -->
+    <visual>
+      <origin xyz="-0.0126608 0.0201484 0.0116133" rpy="-1.58825 2.20431e-16 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__11.stl"/>
+      </geometry>
+      <material name="compound_15_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.0126608 0.0201484 0.0116133" rpy="-1.58825 2.20431e-16 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__11.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_16 -->
+    <visual>
+      <origin xyz="-0.0126608 0.0201484 0.0116133" rpy="-1.58825 2.20431e-16 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound.stl"/>
+      </geometry>
+      <material name="compound_16_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.0126608 0.0201484 0.0116133" rpy="-1.58825 2.20431e-16 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_17 -->
+    <visual>
+      <origin xyz="-0.0126608 0.0201484 0.0116133" rpy="-1.58825 2.20431e-16 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__4.stl"/>
+      </geometry>
+      <material name="compound_17_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.0126608 0.0201484 0.0116133" rpy="-1.58825 2.20431e-16 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__4.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_18 -->
+    <visual>
+      <origin xyz="-0.0126608 0.0201484 0.0116133" rpy="-1.58825 2.20431e-16 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__2.stl"/>
+      </geometry>
+      <material name="compound_18_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.0126608 0.0201484 0.0116133" rpy="-1.58825 2.20431e-16 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__2.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part open_cascade_step_translator_6_7_1_2 -->
+    <visual>
+      <origin xyz="-0.00139785 0.00953401 0.00165354" rpy="-6.6751e-19 -5.95214e-23 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/open_cascade_step_translator_6_7_1.stl"/>
+      </geometry>
+      <material name="open_cascade_step_translator_6_7_1_2_material">
+        <color rgba="0.615686 0.811765 0.929412 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.00139785 0.00953401 0.00165354" rpy="-6.6751e-19 -5.95214e-23 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/open_cascade_step_translator_6_7_1.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_19 -->
+    <visual>
+      <origin xyz="-0.0126608 0.0201484 0.0116133" rpy="-1.58825 2.20431e-16 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__5.stl"/>
+      </geometry>
+      <material name="compound_19_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.0126608 0.0201484 0.0116133" rpy="-1.58825 2.20431e-16 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__5.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_20 -->
+    <visual>
+      <origin xyz="-0.0126608 0.0201484 0.0116133" rpy="-1.58825 2.20431e-16 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__8.stl"/>
+      </geometry>
+      <material name="compound_20_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.0126608 0.0201484 0.0116133" rpy="-1.58825 2.20431e-16 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__8.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_21 -->
+    <visual>
+      <origin xyz="-0.0126608 0.0201484 0.0116133" rpy="-1.58825 2.20431e-16 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__3.stl"/>
+      </geometry>
+      <material name="compound_21_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.0126608 0.0201484 0.0116133" rpy="-1.58825 2.20431e-16 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__3.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_22 -->
+    <visual>
+      <origin xyz="-0.0126608 0.0201484 0.0116133" rpy="-1.58825 2.20431e-16 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__7.stl"/>
+      </geometry>
+      <material name="compound_22_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.0126608 0.0201484 0.0116133" rpy="-1.58825 2.20431e-16 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__7.stl"/>
+      </geometry>
+    </collision>
+  </link>
+  <!-- Link servo_disc_2 -->
+  <link name="servo_disc_2">
+    <inertial>
+      <origin xyz="-5.64722e-08 0.042812 -0.0224458" rpy="0 0 0"/>
+      <mass value="0.027462"/>
+      <inertia ixx="2.79209e-05" ixy="3.15678e-11" ixz="-1.73584e-16" iyy="1.29614e-05" iyz="6.70808e-11" izz="1.71679e-05"/>
+    </inertial>
+    <!-- Part open_cascade_step_translator_6_7_1_3 -->
+    <visual>
+      <origin xyz="0.0029016 0.0428122 -0.023098" rpy="-1.5708 -1.5708 0"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/open_cascade_step_translator_6_7_1__2.stl"/>
+      </geometry>
+      <material name="open_cascade_step_translator_6_7_1_3_material">
+        <color rgba="0.647059 0.647059 0.647059 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0029016 0.0428122 -0.023098" rpy="-1.5708 -1.5708 0"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/open_cascade_step_translator_6_7_1__2.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part servo_disc_2 -->
+    <visual>
+      <origin xyz="-6.93889e-18 0 6.93889e-18" rpy="-1.5708 -6.06994e-17 8.85173e-18"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/servo_disc.stl"/>
+      </geometry>
+      <material name="servo_disc_2_material">
+        <color rgba="0.898039 0.921569 0.929412 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-6.93889e-18 0 6.93889e-18" rpy="-1.5708 -6.06994e-17 8.85173e-18"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/servo_disc.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part servo_disc_3 -->
+    <visual>
+      <origin xyz="-0.000557522 0.0840699 0.000626826" rpy="-1.5748 -0.0206844 0.745506"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/servo_disc.stl"/>
+      </geometry>
+      <material name="servo_disc_3_material">
+        <color rgba="0.898039 0.921569 0.929412 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.000557522 0.0840699 0.000626826" rpy="-1.5748 -0.0206844 0.745506"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/servo_disc.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part open_cascade_step_translator_6_7_1_4 -->
+    <visual>
+      <origin xyz="0.00290173 0.0428118 -0.0217936" rpy="1.5708 1.5708 0"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/open_cascade_step_translator_6_7_1__2.stl"/>
+      </geometry>
+      <material name="open_cascade_step_translator_6_7_1_4_material">
+        <color rgba="0.647059 0.647059 0.647059 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.00290173 0.0428118 -0.0217936" rpy="1.5708 1.5708 0"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/open_cascade_step_translator_6_7_1__2.stl"/>
+      </geometry>
+    </collision>
+  </link>
+  <!-- Link part_1 -->
+  <link name="part_1">
+    <inertial>
+      <origin xyz="0.0261451 0.0338534 -0.0231381" rpy="0 0 0"/>
+      <mass value="0.100091"/>
+      <inertia ixx="7.70166e-05" ixy="-5.21646e-05" ixz="-3.34781e-07" iyy="6.30009e-05" iyz="5.26765e-07" izz="0.000115534"/>
+    </inertial>
+    <!-- Part compound_23 -->
+    <visual>
+      <origin xyz="0.0563217 0.06478 -0.0122959" rpy="0.00747889 0.0170264 0.876856"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__5.stl"/>
+      </geometry>
+      <material name="compound_23_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0563217 0.06478 -0.0122959" rpy="0.00747889 0.0170264 0.876856"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__5.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_24 -->
+    <visual>
+      <origin xyz="0.0563217 0.06478 -0.0122959" rpy="0.00747889 0.0170264 0.876856"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__4.stl"/>
+      </geometry>
+      <material name="compound_24_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0563217 0.06478 -0.0122959" rpy="0.00747889 0.0170264 0.876856"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__4.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part open_cascade_step_translator_6_7_1_5 -->
+    <visual>
+      <origin xyz="0.0420441 0.064225 -0.024198" rpy="-1.57828 -0.0170264 -2.26474"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/open_cascade_step_translator_6_7_1.stl"/>
+      </geometry>
+      <material name="open_cascade_step_translator_6_7_1_5_material">
+        <color rgba="0.615686 0.811765 0.929412 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0420441 0.064225 -0.024198" rpy="-1.57828 -0.0170264 -2.26474"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/open_cascade_step_translator_6_7_1.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_25 -->
+    <visual>
+      <origin xyz="-1.38778e-17 -4.16334e-17 -0.012" rpy="-1.30043e-15 -3.17116e-16 -2.26062"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__9.stl"/>
+      </geometry>
+      <material name="compound_25_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-1.38778e-17 -4.16334e-17 -0.012" rpy="-1.30043e-15 -3.17116e-16 -2.26062"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__9.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_26 -->
+    <visual>
+      <origin xyz="-1.38778e-17 -4.16334e-17 -0.012" rpy="-1.30043e-15 -3.17116e-16 -2.26062"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__3.stl"/>
+      </geometry>
+      <material name="compound_26_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-1.38778e-17 -4.16334e-17 -0.012" rpy="-1.30043e-15 -3.17116e-16 -2.26062"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__3.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_27 -->
+    <visual>
+      <origin xyz="-1.38778e-17 -4.16334e-17 -0.012" rpy="-1.30043e-15 -3.17116e-16 -2.26062"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__11.stl"/>
+      </geometry>
+      <material name="compound_27_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-1.38778e-17 -4.16334e-17 -0.012" rpy="-1.30043e-15 -3.17116e-16 -2.26062"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__11.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part part_1_3 -->
+    <visual>
+      <origin xyz="0.015342 0.0448659 -0.0244674" rpy="-0.00769209 0.0196141 -0.691028"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/part_1__2.stl"/>
+      </geometry>
+      <material name="part_1_3_material">
+        <color rgba="0.501961 0.501961 0.501961 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.015342 0.0448659 -0.0244674" rpy="-0.00769209 0.0196141 -0.691028"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/part_1__2.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_28 -->
+    <visual>
+      <origin xyz="0.0563217 0.06478 -0.0122959" rpy="0.00747889 0.0170264 0.876856"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__8.stl"/>
+      </geometry>
+      <material name="compound_28_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0563217 0.06478 -0.0122959" rpy="0.00747889 0.0170264 0.876856"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__8.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_29 -->
+    <visual>
+      <origin xyz="0.0563217 0.06478 -0.0122959" rpy="0.00747889 0.0170264 0.876856"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__7.stl"/>
+      </geometry>
+      <material name="compound_29_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0563217 0.06478 -0.0122959" rpy="0.00747889 0.0170264 0.876856"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__7.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_30 -->
+    <visual>
+      <origin xyz="0.0563217 0.06478 -0.0122959" rpy="0.00747889 0.0170264 0.876856"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__2.stl"/>
+      </geometry>
+      <material name="compound_30_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0563217 0.06478 -0.0122959" rpy="0.00747889 0.0170264 0.876856"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__2.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_31 -->
+    <visual>
+      <origin xyz="-1.38778e-17 -4.16334e-17 -0.012" rpy="-1.30043e-15 -3.17116e-16 -2.26062"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound.stl"/>
+      </geometry>
+      <material name="compound_31_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-1.38778e-17 -4.16334e-17 -0.012" rpy="-1.30043e-15 -3.17116e-16 -2.26062"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_32 -->
+    <visual>
+      <origin xyz="-1.38778e-17 -4.16334e-17 -0.012" rpy="-1.30043e-15 -3.17116e-16 -2.26062"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__7.stl"/>
+      </geometry>
+      <material name="compound_32_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-1.38778e-17 -4.16334e-17 -0.012" rpy="-1.30043e-15 -3.17116e-16 -2.26062"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__7.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_33 -->
+    <visual>
+      <origin xyz="-1.38778e-17 -4.16334e-17 -0.012" rpy="-1.30043e-15 -3.17116e-16 -2.26062"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__4.stl"/>
+      </geometry>
+      <material name="compound_33_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-1.38778e-17 -4.16334e-17 -0.012" rpy="-1.30043e-15 -3.17116e-16 -2.26062"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__4.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_34 -->
+    <visual>
+      <origin xyz="-1.38778e-17 -4.16334e-17 -0.012" rpy="-1.30043e-15 -3.17116e-16 -2.26062"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__6.stl"/>
+      </geometry>
+      <material name="compound_34_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-1.38778e-17 -4.16334e-17 -0.012" rpy="-1.30043e-15 -3.17116e-16 -2.26062"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__6.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_35 -->
+    <visual>
+      <origin xyz="0.0563217 0.06478 -0.0122959" rpy="0.00747889 0.0170264 0.876856"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__11.stl"/>
+      </geometry>
+      <material name="compound_35_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0563217 0.06478 -0.0122959" rpy="0.00747889 0.0170264 0.876856"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__11.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_36 -->
+    <visual>
+      <origin xyz="0.0563217 0.06478 -0.0122959" rpy="0.00747889 0.0170264 0.876856"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__10.stl"/>
+      </geometry>
+      <material name="compound_36_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0563217 0.06478 -0.0122959" rpy="0.00747889 0.0170264 0.876856"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__10.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_37 -->
+    <visual>
+      <origin xyz="-1.38778e-17 -4.16334e-17 -0.012" rpy="-1.30043e-15 -3.17116e-16 -2.26062"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__2.stl"/>
+      </geometry>
+      <material name="compound_37_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-1.38778e-17 -4.16334e-17 -0.012" rpy="-1.30043e-15 -3.17116e-16 -2.26062"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__2.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part open_cascade_step_translator_6_7_1_6 -->
+    <visual>
+      <origin xyz="-0.0013519 0.0149167 -0.0241422" rpy="-1.5708 -3.17116e-16 -2.26062"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/open_cascade_step_translator_6_7_1.stl"/>
+      </geometry>
+      <material name="open_cascade_step_translator_6_7_1_6_material">
+        <color rgba="0.615686 0.811765 0.929412 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.0013519 0.0149167 -0.0241422" rpy="-1.5708 -3.17116e-16 -2.26062"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/open_cascade_step_translator_6_7_1.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part part_1_4 -->
+    <visual>
+      <origin xyz="0.0127932 0.0417833 -0.0244372" rpy="3.1339 0.0196141 -0.691028"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/part_1__2.stl"/>
+      </geometry>
+      <material name="part_1_4_material">
+        <color rgba="0.501961 0.501961 0.501961 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0127932 0.0417833 -0.0244372" rpy="3.1339 0.0196141 -0.691028"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/part_1__2.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_38 -->
+    <visual>
+      <origin xyz="0.0563217 0.06478 -0.0122959" rpy="0.00747889 0.0170264 0.876856"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__9.stl"/>
+      </geometry>
+      <material name="compound_38_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0563217 0.06478 -0.0122959" rpy="0.00747889 0.0170264 0.876856"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__9.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_39 -->
+    <visual>
+      <origin xyz="0.0563217 0.06478 -0.0122959" rpy="0.00747889 0.0170264 0.876856"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__6.stl"/>
+      </geometry>
+      <material name="compound_39_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0563217 0.06478 -0.0122959" rpy="0.00747889 0.0170264 0.876856"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__6.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_40 -->
+    <visual>
+      <origin xyz="-1.38778e-17 -4.16334e-17 -0.012" rpy="-1.30043e-15 -3.17116e-16 -2.26062"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__8.stl"/>
+      </geometry>
+      <material name="compound_40_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-1.38778e-17 -4.16334e-17 -0.012" rpy="-1.30043e-15 -3.17116e-16 -2.26062"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__8.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_41 -->
+    <visual>
+      <origin xyz="-1.38778e-17 -4.16334e-17 -0.012" rpy="-1.30043e-15 -3.17116e-16 -2.26062"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__10.stl"/>
+      </geometry>
+      <material name="compound_41_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-1.38778e-17 -4.16334e-17 -0.012" rpy="-1.30043e-15 -3.17116e-16 -2.26062"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__10.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_42 -->
+    <visual>
+      <origin xyz="-1.38778e-17 -4.16334e-17 -0.012" rpy="-1.30043e-15 -3.17116e-16 -2.26062"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__5.stl"/>
+      </geometry>
+      <material name="compound_42_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-1.38778e-17 -4.16334e-17 -0.012" rpy="-1.30043e-15 -3.17116e-16 -2.26062"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__5.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_43 -->
+    <visual>
+      <origin xyz="0.0563217 0.06478 -0.0122959" rpy="0.00747889 0.0170264 0.876856"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__3.stl"/>
+      </geometry>
+      <material name="compound_43_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0563217 0.06478 -0.0122959" rpy="0.00747889 0.0170264 0.876856"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__3.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_44 -->
+    <visual>
+      <origin xyz="0.0563217 0.06478 -0.0122959" rpy="0.00747889 0.0170264 0.876856"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound.stl"/>
+      </geometry>
+      <material name="compound_44_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0563217 0.06478 -0.0122959" rpy="0.00747889 0.0170264 0.876856"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound.stl"/>
+      </geometry>
+    </collision>
+  </link>
+  <!-- Link open_cascade_step_translator_6_7_1 -->
+  <link name="open_cascade_step_translator_6_7_1">
+    <inertial>
+      <origin xyz="0.0274505 0.0223942 0.0185886" rpy="0 0 0"/>
+      <mass value="0.0468403"/>
+      <inertia ixx="1.57704e-05" ixy="-4.24913e-06" ixz="-1.18803e-07" iyy="1.74253e-05" iyz="3.00921e-07" izz="1.19607e-05"/>
+    </inertial>
+    <!-- Part compound_45 -->
+    <visual>
+      <origin xyz="0.038335 0.0308645 0.0279278" rpy="-1.99722 -1.52771 -0.450298"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__8.stl"/>
+      </geometry>
+      <material name="compound_45_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.038335 0.0308645 0.0279278" rpy="-1.99722 -1.52771 -0.450298"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__8.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_46 -->
+    <visual>
+      <origin xyz="0.038335 0.0308645 0.0279278" rpy="-1.99722 -1.52771 -0.450298"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__9.stl"/>
+      </geometry>
+      <material name="compound_46_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.038335 0.0308645 0.0279278" rpy="-1.99722 -1.52771 -0.450298"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__9.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_47 -->
+    <visual>
+      <origin xyz="0.038335 0.0308645 0.0279278" rpy="-1.99722 -1.52771 -0.450298"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__2.stl"/>
+      </geometry>
+      <material name="compound_47_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.038335 0.0308645 0.0279278" rpy="-1.99722 -1.52771 -0.450298"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__2.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_48 -->
+    <visual>
+      <origin xyz="0.038335 0.0308645 0.0279278" rpy="-1.99722 -1.52771 -0.450298"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__5.stl"/>
+      </geometry>
+      <material name="compound_48_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.038335 0.0308645 0.0279278" rpy="-1.99722 -1.52771 -0.450298"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__5.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_49 -->
+    <visual>
+      <origin xyz="0.038335 0.0308645 0.0279278" rpy="-1.99722 -1.52771 -0.450298"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__10.stl"/>
+      </geometry>
+      <material name="compound_49_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.038335 0.0308645 0.0279278" rpy="-1.99722 -1.52771 -0.450298"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__10.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part servo_disc_4 -->
+    <visual>
+      <origin xyz="-8.32667e-17 2.77556e-17 -0.0045" rpy="1.5708 6.06862e-18 -2.20632e-17"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/servo_disc.stl"/>
+      </geometry>
+      <material name="servo_disc_4_material">
+        <color rgba="0.898039 0.921569 0.929412 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-8.32667e-17 2.77556e-17 -0.0045" rpy="1.5708 6.06862e-18 -2.20632e-17"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/servo_disc.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_50 -->
+    <visual>
+      <origin xyz="0.038335 0.0308645 0.0279278" rpy="-1.99722 -1.52771 -0.450298"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__4.stl"/>
+      </geometry>
+      <material name="compound_50_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.038335 0.0308645 0.0279278" rpy="-1.99722 -1.52771 -0.450298"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__4.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_51 -->
+    <visual>
+      <origin xyz="0.038335 0.0308645 0.0279278" rpy="-1.99722 -1.52771 -0.450298"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__3.stl"/>
+      </geometry>
+      <material name="compound_51_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.038335 0.0308645 0.0279278" rpy="-1.99722 -1.52771 -0.450298"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__3.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_52 -->
+    <visual>
+      <origin xyz="0.038335 0.0308645 0.0279278" rpy="-1.99722 -1.52771 -0.450298"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound.stl"/>
+      </geometry>
+      <material name="compound_52_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.038335 0.0308645 0.0279278" rpy="-1.99722 -1.52771 -0.450298"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_53 -->
+    <visual>
+      <origin xyz="0.038335 0.0308645 0.0279278" rpy="-1.99722 -1.52771 -0.450298"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__6.stl"/>
+      </geometry>
+      <material name="compound_53_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.038335 0.0308645 0.0279278" rpy="-1.99722 -1.52771 -0.450298"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__6.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_54 -->
+    <visual>
+      <origin xyz="0.038335 0.0308645 0.0279278" rpy="-1.99722 -1.52771 -0.450298"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__7.stl"/>
+      </geometry>
+      <material name="compound_54_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.038335 0.0308645 0.0279278" rpy="-1.99722 -1.52771 -0.450298"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__7.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part compound_55 -->
+    <visual>
+      <origin xyz="0.038335 0.0308645 0.0279278" rpy="-1.99722 -1.52771 -0.450298"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__11.stl"/>
+      </geometry>
+      <material name="compound_55_material">
+        <color rgba="0.0980392 0.0980392 0.0980392 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.038335 0.0308645 0.0279278" rpy="-1.99722 -1.52771 -0.450298"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/compound__11.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part open_cascade_step_translator_6_7_1_7 -->
+    <visual>
+      <origin xyz="0.0339901 0.0242591 0.0197454" rpy="-1.55887 1.53951 2.2766"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/open_cascade_step_translator_6_7_1__2.stl"/>
+      </geometry>
+      <material name="open_cascade_step_translator_6_7_1_7_material">
+        <color rgba="0.647059 0.647059 0.647059 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0339901 0.0242591 0.0197454" rpy="-1.55887 1.53951 2.2766"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/open_cascade_step_translator_6_7_1__2.stl"/>
+      </geometry>
+    </collision>
+  </link>
+  <!-- Link gripper -->
+  <link name="gripper">
+    <inertial>
+      <origin xyz="0.0156297 0.0187372 -0.0361778" rpy="0 0 0"/>
+      <mass value="0.12785"/>
+      <inertia ixx="8.65754e-05" ixy="-1.70779e-05" ixz="-1.55977e-05" iyy="7.64737e-05" iyz="-1.57482e-05" izz="6.90132e-05"/>
+    </inertial>
+    <!-- Part servo_disc_5 -->
+    <visual>
+      <origin xyz="-8.67362e-19 0 -0.0045" rpy="1.5708 -6.03092e-19 -2.15007e-17"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/servo_disc.stl"/>
+      </geometry>
+      <material name="servo_disc_5_material">
+        <color rgba="0.898039 0.921569 0.929412 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-8.67362e-19 0 -0.0045" rpy="1.5708 -6.03092e-19 -2.15007e-17"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/servo_disc.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part gripper_link -->
+    <visual>
+      <origin xyz="0.00369453 0.00900958 -0.064282" rpy="1.5708 -1.36245 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_link.stl"/>
+      </geometry>
+      <material name="gripper_link_material">
+        <color rgba="0.776471 0.756863 0.737255 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.00369453 0.00900958 -0.064282" rpy="1.5708 -1.36245 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_link.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part gripper_long_straight_washer -->
+    <visual>
+      <origin xyz="0.00119453 0.00178955 -0.0342973" rpy="-1.5708 -0.862692 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_long_straight_washer.stl"/>
+      </geometry>
+      <material name="gripper_long_straight_washer_material">
+        <color rgba="1 0.94902 0.909804 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.00119453 0.00178955 -0.0342973" rpy="-1.5708 -0.862692 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_long_straight_washer.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part gripper_connector -->
+    <visual>
+      <origin xyz="-0.00380547 0.00140435 -0.0065023" rpy="3.14159 2.19591e-15 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_connector.stl"/>
+      </geometry>
+      <material name="gripper_connector_material">
+        <color rgba="0.796078 0.823529 0.937255 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.00380547 0.00140435 -0.0065023" rpy="3.14159 2.19591e-15 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_connector.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part servo_motor -->
+    <visual>
+      <origin xyz="0.0439945 0.0261866 -0.0292829" rpy="-3.14159 0.000588912 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/servo_motor.stl"/>
+      </geometry>
+      <material name="servo_motor_material">
+        <color rgba="0.501961 0.501961 0.501961 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0439945 0.0261866 -0.0292829" rpy="-3.14159 0.000588912 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/servo_motor.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part gripper_straight_washer -->
+    <visual>
+      <origin xyz="-0.00480547 -0.0119134 -0.0293053" rpy="-1.5708 1.17829 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_straight_washer.stl"/>
+      </geometry>
+      <material name="gripper_straight_washer_material">
+        <color rgba="1 0.94902 0.909804 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.00480547 -0.0119134 -0.0293053" rpy="-1.5708 1.17829 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_straight_washer.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part gripper_straight_washer_2 -->
+    <visual>
+      <origin xyz="-0.00480547 -0.0030983 -0.0496063" rpy="-1.5708 1.17829 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_straight_washer.stl"/>
+      </geometry>
+      <material name="gripper_straight_washer_2_material">
+        <color rgba="1 0.94902 0.909804 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.00480547 -0.0030983 -0.0496063" rpy="-1.5708 1.17829 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_straight_washer.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part gripper_link_gear_1 -->
+    <visual>
+      <origin xyz="-0.00730547 -0.0119134 -0.0293053" rpy="-1.5708 1.16068 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_link_gear_1.stl"/>
+      </geometry>
+      <material name="gripper_link_gear_1_material">
+        <color rgba="0.796078 0.823529 0.937255 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.00730547 -0.0119134 -0.0293053" rpy="-1.5708 1.16068 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_link_gear_1.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part gripper_finger -->
+    <visual>
+      <origin xyz="-0.00480547 -0.0162466 -0.0679559" rpy="-1.5708 -0.970302 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_finger.stl"/>
+      </geometry>
+      <material name="gripper_finger_material">
+        <color rgba="0.776471 0.756863 0.737255 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.00480547 -0.0162466 -0.0679559" rpy="-1.5708 -0.970302 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_finger.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part gripper_straight_washer_3 -->
+    <visual>
+      <origin xyz="-0.00480547 0.005907 -0.0496063" rpy="-1.5708 1.17829 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_straight_washer.stl"/>
+      </geometry>
+      <material name="gripper_straight_washer_3_material">
+        <color rgba="1 0.94902 0.909804 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.00480547 0.005907 -0.0496063" rpy="-1.5708 1.17829 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_straight_washer.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part gripper_long_straight_washer_2 -->
+    <visual>
+      <origin xyz="0.00119453 0.0505837 -0.0242685" rpy="-1.5708 1.17829 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_long_straight_washer.stl"/>
+      </geometry>
+      <material name="gripper_long_straight_washer_2_material">
+        <color rgba="1 0.94902 0.909804 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.00119453 0.0505837 -0.0242685" rpy="-1.5708 1.17829 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_long_straight_washer.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part gripper_finger_2 -->
+    <visual>
+      <origin xyz="-0.00180547 -0.0162466 -0.0679559" rpy="-1.5708 -0.970302 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_finger.stl"/>
+      </geometry>
+      <material name="gripper_finger_2_material">
+        <color rgba="0.776471 0.756863 0.737255 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.00180547 -0.0162466 -0.0679559" rpy="-1.5708 -0.970302 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_finger.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part gripper_long_straight_washer_3 -->
+    <visual>
+      <origin xyz="0.00119453 0.00178366 -0.0242973" rpy="-1.5708 1.17829 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_long_straight_washer.stl"/>
+      </geometry>
+      <material name="gripper_long_straight_washer_3_material">
+        <color rgba="1 0.94902 0.909804 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.00119453 0.00178366 -0.0242973" rpy="-1.5708 1.17829 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_long_straight_washer.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part gripper_finger_3 -->
+    <visual>
+      <origin xyz="-0.00180547 0.0199415 -0.0679598" rpy="-1.5708 -0.95213 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_finger.stl"/>
+      </geometry>
+      <material name="gripper_finger_3_material">
+        <color rgba="0.776471 0.756863 0.737255 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.00180547 0.0199415 -0.0679598" rpy="-1.5708 -0.95213 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_finger.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part gripper_base -->
+    <visual>
+      <origin xyz="0.00119453 -0.0164134 -0.029308" rpy="1.5708 -1.57021 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_base.stl"/>
+      </geometry>
+      <material name="gripper_base_material">
+        <color rgba="0.776471 0.756863 0.737255 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.00119453 -0.0164134 -0.029308" rpy="1.5708 -1.57021 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_base.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part gripper_long_straight_washer_4 -->
+    <visual>
+      <origin xyz="0.00119453 0.0505895 -0.0342685" rpy="-1.5708 1.17829 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_long_straight_washer.stl"/>
+      </geometry>
+      <material name="gripper_long_straight_washer_4_material">
+        <color rgba="1 0.94902 0.909804 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.00119453 0.0505895 -0.0342685" rpy="-1.5708 1.17829 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_long_straight_washer.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part gripper_finger_4 -->
+    <visual>
+      <origin xyz="0.00119453 0.0199415 -0.0679598" rpy="-1.5708 -0.95213 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_finger.stl"/>
+      </geometry>
+      <material name="gripper_finger_4_material">
+        <color rgba="0.776471 0.756863 0.737255 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.00119453 0.0199415 -0.0679598" rpy="-1.5708 -0.95213 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_finger.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part gripper_connector_2 -->
+    <visual>
+      <origin xyz="0.00319453 0.00140435 -0.0065023" rpy="-3.14159 -2.19591e-15 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_connector.stl"/>
+      </geometry>
+      <material name="gripper_connector_2_material">
+        <color rgba="0.796078 0.823529 0.937255 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.00319453 0.00140435 -0.0065023" rpy="-3.14159 -2.19591e-15 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_connector.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part gripper_link_2 -->
+    <visual>
+      <origin xyz="-0.00730547 0.00900958 -0.064282" rpy="-1.5708 -1.36245 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_link.stl"/>
+      </geometry>
+      <material name="gripper_link_2_material">
+        <color rgba="0.776471 0.756863 0.737255 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.00730547 0.00900958 -0.064282" rpy="-1.5708 -1.36245 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_link.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part gripper_link_3 -->
+    <visual>
+      <origin xyz="-0.00480547 -0.00585835 -0.0643502" rpy="-1.5708 -1.38574 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_link.stl"/>
+      </geometry>
+      <material name="gripper_link_3_material">
+        <color rgba="0.776471 0.756863 0.737255 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.00480547 -0.00585835 -0.0643502" rpy="-1.5708 -1.38574 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_link.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part gripper_link_4 -->
+    <visual>
+      <origin xyz="0.00119453 -0.00585835 -0.0643502" rpy="1.5708 -1.38574 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_link.stl"/>
+      </geometry>
+      <material name="gripper_link_4_material">
+        <color rgba="0.776471 0.756863 0.737255 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.00119453 -0.00585835 -0.0643502" rpy="1.5708 -1.38574 1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_link.stl"/>
+      </geometry>
+    </collision>
+  </link>
+  <!-- Link servo_disc_3 -->
+  <link name="servo_disc_3">
+    <inertial>
+      <origin xyz="-0.000878083 -0.00726238 -0.00885999" rpy="0 0 0"/>
+      <mass value="0.00521399"/>
+      <inertia ixx="7.96575e-07" ixy="-3.17326e-08" ixz="1.41021e-09" iyy="1.76828e-07" iyz="6.28e-09" izz="9.64707e-07"/>
+    </inertial>
+    <!-- Part gripper_straight_washer_4 -->
+    <visual>
+      <origin xyz="-2.77556e-17 -5.55112e-17 -0.0045" rpy="-3.14159 -1.99876e-18 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_straight_washer.stl"/>
+      </geometry>
+      <material name="gripper_straight_washer_4_material">
+        <color rgba="1 0.94902 0.909804 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-2.77556e-17 -5.55112e-17 -0.0045" rpy="-3.14159 -1.99876e-18 -1.5708"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_straight_washer.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part servo_disc_6 -->
+    <visual>
+      <origin xyz="-5.55112e-17 -5.55112e-17 -0.0045" rpy="1.5708 -5.11987e-18 -7.71838e-19"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/servo_disc.stl"/>
+      </geometry>
+      <material name="servo_disc_6_material">
+        <color rgba="0.898039 0.921569 0.929412 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-5.55112e-17 -5.55112e-17 -0.0045" rpy="1.5708 -5.11987e-18 -7.71838e-19"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/servo_disc.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part gripper_link_gear_1_2 -->
+    <visual>
+      <origin xyz="9.92849e-05 -0.000874136 -0.00779862" rpy="3.134 -0.0131594 -1.65867"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_link_gear_1.stl"/>
+      </geometry>
+      <material name="gripper_link_gear_1_2_material">
+        <color rgba="0.796078 0.823529 0.937255 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="9.92849e-05 -0.000874136 -0.00779862" rpy="3.134 -0.0131594 -1.65867"/>
+      <geometry>
+        <mesh filename="file:///workspace/robot_urdf/assets/gripper_link_gear_1.stl"/>
+      </geometry>
+    </collision>
+  </link>
+  <!-- Joint from gripper to servo_disc_3 -->
+  <joint name="gripper" type="revolute">
+    <origin xyz="0.00249453 0.0161866 -0.0292888" rpy="1.5708 -0.535872 1.5708"/>
+    <parent link="gripper"/>
+    <child link="servo_disc_3"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="10" velocity="10" lower="-3.141592653589793" upper="3.141592653589793"/>
+  </joint>
+  <!-- Joint from open_cascade_step_translator_6_7_1 to gripper -->
+  <joint name="wrist_rotate" type="revolute">
+    <origin xyz="0.0475547 0.0385425 0.027714" rpy="-1.5368 -1.01899 2.23627"/>
+    <parent link="open_cascade_step_translator_6_7_1"/>
+    <child link="gripper"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="10" velocity="10" lower="-3.141592653589793" upper="3.141592653589793"/>
+  </joint>
+  <!-- Joint from part_1 to open_cascade_step_translator_6_7_1 -->
+  <joint name="wrist" type="revolute">
+    <origin xyz="0.0565214 0.0648797 -0.000297974" rpy="-3.12528 0.0089337 1.53269"/>
+    <parent link="part_1"/>
+    <child link="open_cascade_step_translator_6_7_1"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="10" velocity="10" lower="-3.141592653589793" upper="3.141592653589793"/>
+  </joint>
+  <!-- Joint from servo_disc_2 to part_1 -->
+  <joint name="elbow" type="revolute">
+    <origin xyz="-0.000476914 0.0841198 -0.00387217" rpy="-0.00400414 -0.0206844 0.745506"/>
+    <parent link="servo_disc_2"/>
+    <child link="part_1"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="10" velocity="10" lower="-3.141592653589793" upper="3.141592653589793"/>
+  </joint>
+  <!-- Joint from servo_disc to servo_disc_2 -->
+  <joint name="shoulder" type="revolute">
+    <origin xyz="-0.0281584 0.0201485 0.0113428" rpy="1.58826 -0.0358289 -1.57142"/>
+    <parent link="servo_disc"/>
+    <child link="servo_disc_2"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="10" velocity="10" lower="-3.141592653589793" upper="3.141592653589793"/>
+  </joint>
+  <!-- Joint from compound to servo_disc -->
+  <joint name="base" type="revolute">
+    <origin xyz="0.0284017 -0.00137038 0.0592971" rpy="-1.55179e-07 -2.15242e-07 2.23697"/>
+    <parent link="compound"/>
+    <child link="servo_disc"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="10" velocity="10" lower="-3.141592653589793" upper="3.141592653589793"/>
+  </joint>
+</robot>

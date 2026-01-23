@@ -22,10 +22,9 @@
     background: #64748b;
 }
 
-/* Glassmorphism Effect - Reduced blur for performance */
+/* Glassmorphism Effect - No blur for Raspberry Pi performance */
 .glass {
-    background: rgba(30, 41, 59, 0.85);
-    backdrop-filter: blur(4px);
+    background: rgba(30, 41, 59, 0.95);
     border: 1px solid rgba(148, 163, 184, 0.1);
 }
 
@@ -89,20 +88,16 @@ button {
     position: relative;
 }
 
-/* Loading Spinner */
+/* Loading Spinner - Removed for performance */
 .spinner {
     border: 3px solid rgba(59, 130, 246, 0.2);
     border-top: 3px solid #3b82f6;
     border-radius: 50%;
     width: 20px;
     height: 20px;
-    animation: spin 0.8s linear infinite;
 }
 
-@keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-}
+/* Removed spin animation - not needed on Raspberry Pi */
 
 /* Status Indicators - Static for performance */
 .status-online {

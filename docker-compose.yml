@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  ros2_arm:
+    build: .
+    container_name: ros2_robot_arm
+    privileged: true
+    network_mode: host
+    group_add:
+      - "988"  # i2c group
+    volumes:
+      - .:/workspace
+      - /dev:/dev
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    environment:
+      - DISPLAY=${DISPLAY}
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    devices:
+      - /dev/i2c-1:/dev/i2c-1

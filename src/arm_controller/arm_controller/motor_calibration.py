@@ -29,12 +29,11 @@ for channel in active_channels:
 
         # Set actuation range based on servo type
         # Channel 0 (base) is 270 degrees, others are 180 degrees
-        if channel == 0:
-            s.actuation_range = 270
-            center_angle = 135  # Center for 270° servo
-        else:
-            s.actuation_range = 180
-            center_angle = 90  # Center for 180° servo
+        # if channel == 0:
+        #     s.actuation_range = 270
+        #     center_angle = 135  # Center for 270° servo
+        s.actuation_range = 180
+        center_angle = 90  # Center for 180° servo
         
         s.angle = center_angle
         my_servos.append(s)

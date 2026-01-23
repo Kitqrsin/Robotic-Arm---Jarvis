@@ -1,0 +1,7 @@
+# Request: Name of predefined pose
+string pose_name
+---
+# Response
+bool success
+string message
+geometry_msgs/Point position  # Actual position executed

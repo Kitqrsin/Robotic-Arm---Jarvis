@@ -8,22 +8,10 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body class="bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-100 font-sans min-h-screen flex items-center justify-center relative overflow-hidden">
-    <!-- Animated Background -->
-    <div class="absolute inset-0 overflow-hidden pointer-events-none">
-        <div class="absolute -top-40 -right-40 w-80 h-80 bg-blue-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob"></div>
-        <div class="absolute -bottom-40 -left-40 w-80 h-80 bg-purple-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-2000"></div>
-        <div class="absolute top-40 left-40 w-80 h-80 bg-pink-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-4000"></div>
-    </div>
-
-    <style>
-        /* Simplified animations for Raspberry Pi */
-        .animate-blob {
-            opacity: 0.15;
-        }
-    </style>
+    <!-- Removed animated backgrounds for performance -->
 
     <div class="max-w-md w-full mx-4 relative z-10">
-        <div class="auth-container bg-slate-800/80 backdrop-blur-xl rounded-2xl shadow-2xl p-8 border border-slate-700/50">
+        <div class="auth-container bg-slate-800 rounded-2xl shadow-2xl p-8 border border-slate-700/50">
             <!-- Logo/Header -->
             <div class="text-center mb-8">
                 <div class="logo-circle w-20 h-20 rounded-full flex items-center justify-center font-bold text-white text-3xl mx-auto mb-4 shadow-lg">
@@ -81,13 +69,13 @@
                         Password
                     </label>
                     <input type="password" name="password" required 
-                        class="w-full bg-slate-900/50 backdrop-blur-sm border border-slate-700/50 rounded-lg px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
+                        class="w-full bg-slate-900/50 border border-slate-700/50 rounded-lg px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
                         placeholder="Enter your password">
                 </div>
 
-                <button type="submit" class="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold py-3 px-4 rounded-lg transition-all shadow-lg hover:shadow-blue-500/50 transform hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center gap-2 group">
+                <button type="submit" class="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold py-3 px-4 rounded-lg shadow-lg flex items-center justify-center gap-2">
                     <span>Login</span>
-                    <svg class="w-5 h-5 transform group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"></path>
                     </svg>
                 </button>

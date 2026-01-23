@@ -6,7 +6,8 @@
 sudo docker run -it --rm \
   --privileged \
   --network host \
-  -v /home/antonia/robot_arm_ws:/workspace \
+  #change thw workspace path according to your project location
+  -v /home/tnt/arm_project/Robotic-Arm---Jarvis:/workspace \
   -v /dev:/dev \
   -e DISPLAY=$DISPLAY \
   -v /tmp/.X11-unix:/tmp/.X11-unix \

@@ -1,0 +1,12 @@
+# Request: Target Cartesian position and orientation
+float64 x             # X position in meters
+float64 y             # Y position in meters  
+float64 z             # Z position in meters
+float64 pitch         # Pitch angle in radians (default 0)
+float64 roll          # Roll angle in radians (default 0)
+float64 gripper_angle # Gripper angle in degrees (0 = use current)
+---
+# Response
+bool success          # True if motion succeeded
+string message        # Status message
+float64[] joint_angles # Calculated joint angles in degrees
