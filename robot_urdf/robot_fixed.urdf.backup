@@ -3,7 +3,7 @@
 <!-- Onshape document_id: 93be7c15a633252e37868d3e -->
 <robot name="robot_urdf">
   <!-- Link compound -->
-  <link name="base_link">
+  <link name="compound">
     <inertial>
       <origin xyz="0.00471375 -0.00223051 0.00931776" rpy="0 0 0"/>
       <mass value="0.141675"/>
@@ -235,7 +235,7 @@
     </collision>
   </link>
   <!-- Link servo_disc -->
-  <link name="shoulder_link">
+  <link name="servo_disc">
     <inertial>
       <origin xyz="-0.0020343 0.010051 0.0103927" rpy="0 0 0"/>
       <mass value="0.0428428"/>
@@ -451,7 +451,7 @@
     </collision>
   </link>
   <!-- Link servo_disc_2 -->
-  <link name="upper_arm_link">
+  <link name="servo_disc_2">
     <inertial>
       <origin xyz="-5.64722e-08 0.042812 -0.0224458" rpy="0 0 0"/>
       <mass value="0.027462"/>
@@ -523,7 +523,7 @@
     </collision>
   </link>
   <!-- Link part_1 -->
-  <link name="forearm_link">
+  <link name="part_1">
     <inertial>
       <origin xyz="0.0261451 0.0338534 -0.0231381" rpy="0 0 0"/>
       <mass value="0.100091"/>
@@ -947,7 +947,7 @@
     </collision>
   </link>
   <!-- Link open_cascade_step_translator_6_7_1 -->
-  <link name="wrist_link">
+  <link name="open_cascade_step_translator_6_7_1">
     <inertial>
       <origin xyz="0.0274505 0.0223942 0.0185886" rpy="0 0 0"/>
       <mass value="0.0468403"/>
@@ -1163,7 +1163,7 @@
     </collision>
   </link>
   <!-- Link gripper -->
-  <link name="gripper_base">
+  <link name="gripper">
     <inertial>
       <origin xyz="0.0156297 0.0187372 -0.0361778" rpy="0 0 0"/>
       <mass value="0.12785"/>
@@ -1563,9 +1563,9 @@
     </collision>
   </link>
   <!-- Joint from gripper to servo_disc_3 -->
-  <joint name="gripper_base" type="revolute">
+  <joint name="gripper" type="revolute">
     <origin xyz="0.00249453 0.0161866 -0.0292888" rpy="1.5708 -0.535872 1.5708"/>
-    <parent link="gripper_base"/>
+    <parent link="gripper"/>
     <child link="servo_disc_3"/>
     <axis xyz="0 0 1"/>
     <limit effort="10" velocity="10" lower="-3.141592653589793" upper="3.141592653589793"/>
@@ -1573,40 +1573,40 @@
   <!-- Joint from open_cascade_step_translator_6_7_1 to gripper -->
   <joint name="wrist_rotate" type="revolute">
     <origin xyz="0.0475547 0.0385425 0.027714" rpy="-1.5368 -1.01899 2.23627"/>
-    <parent link="wrist_link"/>
-    <child link="gripper_base"/>
+    <parent link="open_cascade_step_translator_6_7_1"/>
+    <child link="gripper"/>
     <axis xyz="0 0 1"/>
     <limit effort="10" velocity="10" lower="-3.141592653589793" upper="3.141592653589793"/>
   </joint>
   <!-- Joint from part_1 to open_cascade_step_translator_6_7_1 -->
   <joint name="wrist" type="revolute">
     <origin xyz="0.0565214 0.0648797 -0.000297974" rpy="-3.12528 0.0089337 1.53269"/>
-    <parent link="forearm_link"/>
-    <child link="wrist_link"/>
+    <parent link="part_1"/>
+    <child link="open_cascade_step_translator_6_7_1"/>
     <axis xyz="0 0 1"/>
     <limit effort="10" velocity="10" lower="-3.141592653589793" upper="3.141592653589793"/>
   </joint>
   <!-- Joint from servo_disc_2 to part_1 -->
   <joint name="elbow" type="revolute">
     <origin xyz="-0.000476914 0.0841198 -0.00387217" rpy="-0.00400414 -0.0206844 0.745506"/>
-    <parent link="upper_arm_link"/>
-    <child link="forearm_link"/>
+    <parent link="servo_disc_2"/>
+    <child link="part_1"/>
     <axis xyz="0 0 1"/>
     <limit effort="10" velocity="10" lower="-3.141592653589793" upper="3.141592653589793"/>
   </joint>
   <!-- Joint from servo_disc to servo_disc_2 -->
   <joint name="shoulder" type="revolute">
     <origin xyz="-0.0281584 0.0201485 0.0113428" rpy="1.58826 -0.0358289 -1.57142"/>
-    <parent link="shoulder_link"/>
-    <child link="upper_arm_link"/>
+    <parent link="servo_disc"/>
+    <child link="servo_disc_2"/>
     <axis xyz="0 0 1"/>
     <limit effort="10" velocity="10" lower="-3.141592653589793" upper="3.141592653589793"/>
   </joint>
   <!-- Joint from compound to servo_disc -->
   <joint name="base" type="revolute">
     <origin xyz="0.0284017 -0.00137038 0.0592971" rpy="-1.55179e-07 -2.15242e-07 2.23697"/>
-    <parent link="base_link"/>
-    <child link="shoulder_link"/>
+    <parent link="compound"/>
+    <child link="servo_disc"/>
     <axis xyz="0 0 1"/>
     <limit effort="10" velocity="10" lower="-3.141592653589793" upper="3.141592653589793"/>
   </joint>

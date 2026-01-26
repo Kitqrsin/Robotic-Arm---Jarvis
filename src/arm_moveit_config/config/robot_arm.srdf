@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<robot name="robot_urdf">
+    <group name="arm">
+        <chain base_link="base_link" tip_link="gripper_base"/>
+    </group>
+    <end_effector name="gripper_ee" parent_link="gripper_base" group="arm"/>
+    <disable_collisions link1="base_link" link2="shoulder_link" reason="Adjacent"/>
+    <disable_collisions link1="shoulder_link" link2="upper_arm_link" reason="Adjacent"/>
+    <disable_collisions link1="upper_arm_link" link2="forearm_link" reason="Adjacent"/>
+    <disable_collisions link1="forearm_link" link2="wrist_link" reason="Adjacent"/>
+    <disable_collisions link1="wrist_link" link2="gripper_base" reason="Adjacent"/>
+    <group_state name="home" group="arm">
+        <joint name="base" value="0"/>
+        <joint name="shoulder" value="0"/>
+        <joint name="elbow" value="0"/>
+        <joint name="wrist" value="0"/>
+        <joint name="wrist_rotate" value="0"/>
+    </group_state>
+    <group_state name="ready" group="arm">
+        <joint name="base" value="0"/>
+        <joint name="shoulder" value="-0.785"/>
+        <joint name="elbow" value="1.57"/>
+        <joint name="wrist" value="-0.785"/>
+        <joint name="wrist_rotate" value="0"/>
+    </group_state>
+</robot>

@@ -1,8 +1,24 @@
-# 🤖 Jarvis Arm - 5-Axis Robot Arm Controller
+# 🤖 Jarvis Arm - 6-DOF Robot Arm with MoveIt Integration
 
-A web-based control system for a 5-axis robot arm powered by Raspberry Pi, featuring real-time servo control, position saving, pose chaining, and secure authentication.
+A comprehensive robot arm control system powered by Raspberry Pi 5 and ROS2 Humble, featuring real-time servo control, inverse kinematics, motion planning with MoveIt, and a modern GUI interface.
+
+## 🎯 Key Highlights
+
+- **✅ Full MoveIt Integration**: Advanced motion planning with OMPL algorithms
+- **🤖 ROS2 Humble**: Professional robotics middleware
+- **🦾 6-DOF Control**: Base, shoulder, elbow, wrist, wrist_rotate, gripper
+- **📐 Inverse Kinematics**: PyBullet-based IK solver with GUI
+- **🛡️ Safety Features**: Emergency stop, speed control, collision checking
+- **🐳 Docker Containerized**: Isolated ROS2 environment
 
 ## 📋 Features
+
+### MoveIt Motion Planning (NEW! ✨)
+- **Collision-Free Planning**: OMPL algorithms (RRTConnect, RRTstar)
+- **Trajectory Execution**: Multi-waypoint paths with timing control
+- **Predefined Poses**: Home, ready, gripper open/closed
+- **Planning Groups**: Arm (5-DOF), gripper, combined arm+gripper
+- **KDL Kinematics**: Fast inverse kinematics solver
 
 ### Core Functionality
 - **Real-time Servo Control**: Individual control of 5 servos (S2-S6) with live position feedback
@@ -49,6 +65,16 @@ A web-based control system for a 5-axis robot arm powered by Raspberry Pi, featu
 
 ## 📦 Software Dependencies
 
+### ROS2 Environment (Docker)
+- **ROS2 Humble**: Full desktop installation
+- **MoveIt 2.5.9**: Motion planning framework
+- **OMPL**: Open Motion Planning Library
+- **KDL**: Kinematics and Dynamics Library
+- **PyBullet**: Physics simulation for IK
+- **Custom Packages**:
+  - `arm_controller`: Hardware interface and trajectory executor
+  - `arm_moveit_config`: MoveIt configuration
+
 ### Python Packages
 ```bash
 Flask==3.x
@@ -63,6 +89,40 @@ sqlite3 (standard library)
 - Python 3.11+
 - I2C enabled on Raspberry Pi
 - SQLite3
+
+## 🚀 Quick Start
+
+### Option 1: MoveIt with ROS2 (Recommended)
+
+**See [MOVEIT_QUICK_START.md](MOVEIT_QUICK_START.md) for complete instructions.**
+
+```bash
+# Terminal 1: Hardware
+./ros2-access.sh exec
+ros2 run arm_controller servo_node
+
+# Terminal 2: Joint States
+./ros2-access.sh exec
+ros2 run arm_controller joint_state_publisher_node
+
+# Terminal 3: Trajectory Executor
+./ros2-access.sh exec
+ros2 run arm_controller trajectory_executor
+
+# Terminal 4: MoveIt
+./ros2-access.sh exec
+ros2 launch arm_moveit_config moveit.launch.py
+```
+
+### Option 2: GUI with Inverse Kinematics
+
+```bash
+./ros2-access.sh exec
+ros2 run arm_controller arm_gui
+# Opens GUI at http://localhost:8050
+```
+
+### Option 3: Direct Control (Legacy)
 
 ## 🚀 Installation
 

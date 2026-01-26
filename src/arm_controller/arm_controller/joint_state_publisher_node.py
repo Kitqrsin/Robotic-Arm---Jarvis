@@ -22,12 +22,12 @@ class JointStatePublisher(Node):
         # Current joint positions (in radians)
         self.joint_positions = [0.0] * 6
         self.joint_names = [
-            'base_to_link1',
-            'link1_to_link2', 
-            'link2_to_link3',
-            'link3_to_link4',
-            'link4_to_link5',
-            'link5_to_gripper'
+            'base',
+            'shoulder', 
+            'elbow',
+            'wrist',
+            'wrist_rotate',
+            'gripper_base'
         ]
         
         # Subscriber to joint commands to track current state

@@ -29,6 +29,8 @@ setup(
             "motor_calibration = arm_controller.motor_calibration:main",
             "stop_servos = arm_controller.stop_servos:main",
             "arm_gui = arm_controller.arm_gui:main",
+            "trajectory_executor = arm_controller.trajectory_executor:main",
+            "simple_controller = arm_controller.simple_controller:main",
         ],
     },
 )
