@@ -16,8 +16,9 @@ from std_msgs.msg import Float32MultiArray, Float32, Bool
 from visualization_msgs.msg import Marker
 from builtin_interfaces.msg import Duration
 
-# Import IK solver
+# Import IK solver and 3D visualization
 from arm_controller.ik_solver import ArmIKSolver
+from arm_controller.arm_3d_visualization import Arm3DVisualization
 
 
 class ArmControlGUI(Node):
@@ -26,7 +27,7 @@ class ArmControlGUI(Node):
         
         self.root = root
         self.root.title("Jarvis Robot Arm Controller")
-        self.root.geometry("800x700")
+        self.root.geometry("1200x800")
         self.root.configure(bg='#2b2b2b')
         
         # Joint names matching your OnShape URDF
@@ -45,6 +46,9 @@ class ArmControlGUI(Node):
         
         # Initialize IK solver
         self.ik_solver = ArmIKSolver()
+        
+        # 3D visualization (will be set up in setup_gui)
+        self.viz_3d = None
         
         # Real-time mode flag and update control
         self.realtime_mode = tk.BooleanVar(value=False)
@@ -74,10 +78,17 @@ class ArmControlGUI(Node):
             10
         )
         
-        # Publisher for target position marker in RViz
+        # Publisher for target position marker in RViz (orange)
         self.marker_pub = self.create_publisher(
             Marker,
             '/target_position_marker',
+            10
+        )
+        
+        # Publisher for gripper position marker in RViz (green)
+        self.gripper_marker_pub = self.create_publisher(
+            Marker,
+            '/gripper_position_marker',
             10
         )
         
@@ -398,6 +409,19 @@ class ArmControlGUI(Node):
         )
         ik_btn.pack(pady=10, padx=10)
         
+        # 3D Visualization Panel with draggable IK target
+        viz_panel = tk.Frame(main_frame, bg='#2b2b2b')
+        viz_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(10, 0))
+        
+        self.viz_3d = Arm3DVisualization(
+            viz_panel,
+            self.ik_solver,
+            on_target_move_callback=self.on_3d_target_move
+        )
+        
+        # Sync initial cartesian values to 3D viz
+        self.viz_3d.set_target(0.0, 0.0, 0.2)
+        
         # Control Buttons
         button_frame = tk.LabelFrame(
             right_panel,
@@ -476,6 +500,13 @@ class ArmControlGUI(Node):
         self.cartesian_entries[axis].insert(0, str(int(float(value))))
         self.cartesian_labels[axis].config(text=f"{int(float(value))} mm")
         
+        # Sync with 3D visualization
+        if self.viz_3d:
+            x_mm = float(self.cartesian_entries['X'].get())
+            y_mm = float(self.cartesian_entries['Y'].get())
+            z_mm = float(self.cartesian_entries['Z'].get())
+            self.viz_3d.set_target(x_mm / 1000.0, y_mm / 1000.0, z_mm / 1000.0)
+        
         # Solve IK if real-time mode enabled
         if self.realtime_mode.get():
             self.schedule_cartesian_update()
@@ -488,12 +519,91 @@ class ArmControlGUI(Node):
             self.cartesian_sliders[axis].set(value)
             self.cartesian_labels[axis].config(text=f"{int(value)} mm")
             
+            # Sync with 3D visualization
+            if self.viz_3d:
+                x_mm = float(self.cartesian_entries['X'].get())
+                y_mm = float(self.cartesian_entries['Y'].get())
+                z_mm = float(self.cartesian_entries['Z'].get())
+                self.viz_3d.set_target(x_mm / 1000.0, y_mm / 1000.0, z_mm / 1000.0)
+            
             # Solve IK if real-time mode enabled
             if self.realtime_mode.get():
                 self.schedule_cartesian_update()
         except ValueError:
             pass  # Ignore invalid input
     
+    def on_3d_target_move(self, x, y, z):
+        """
+        Callback when the 3D visualization target is moved.
+        Updates cartesian controls and solves IK.
+        
+        Args:
+            x, y, z: Target position in meters
+        """
+        # Convert to millimeters for the UI
+        x_mm = x * 1000
+        y_mm = y * 1000
+        z_mm = z * 1000
+        
+        # Update cartesian sliders and entries
+        self.cartesian_sliders['X'].set(x_mm)
+        self.cartesian_sliders['Y'].set(y_mm)
+        self.cartesian_sliders['Z'].set(z_mm)
+        
+        self.cartesian_entries['X'].delete(0, tk.END)
+        self.cartesian_entries['X'].insert(0, str(int(x_mm)))
+        self.cartesian_entries['Y'].delete(0, tk.END)
+        self.cartesian_entries['Y'].insert(0, str(int(y_mm)))
+        self.cartesian_entries['Z'].delete(0, tk.END)
+        self.cartesian_entries['Z'].insert(0, str(int(z_mm)))
+        
+        self.cartesian_labels['X'].config(text=f"{int(x_mm)} mm")
+        self.cartesian_labels['Y'].config(text=f"{int(y_mm)} mm")
+        self.cartesian_labels['Z'].config(text=f"{int(z_mm)} mm")
+        
+        # Solve IK
+        joint_angles = self.ik_solver.solve_ik(x, y, z, pitch=0, roll=0)
+        
+        if joint_angles is None:
+            self.info_label.config(
+                text=f"⚠ Position ({int(x_mm)}, {int(y_mm)}, {int(z_mm)}) mm is unreachable",
+                fg='#ff8800'
+            )
+            return
+        
+        # Map IK solver's joint names to our joint order
+        ik_to_gui_mapping = {
+            'base': 0,
+            'shoulder': 1,
+            'elbow': 2,
+            'forearm': 3,
+            'wrist': 4,
+            'gripper': 5
+        }
+        
+        # Update sliders with IK solution
+        for ik_joint, gui_idx in ik_to_gui_mapping.items():
+            angle = joint_angles[ik_joint]
+            angle = max(0, min(180, angle))
+            self.joint_sliders[gui_idx].set(angle)
+            self.target_positions[gui_idx] = angle
+        
+        # Update 3D visualization with the IK solution
+        if self.viz_3d:
+            self.viz_3d.update_from_ik_solution(joint_angles)
+        
+        # Publish target marker for RViz
+        self.publish_target_marker(x, y, z)
+        
+        # Real-time mode: auto-send to robot
+        if self.realtime_mode.get():
+            self.schedule_update()
+        else:
+            self.info_label.config(
+                text=f"✓ IK solved for ({int(x_mm)}, {int(y_mm)}, {int(z_mm)}) mm. Click 'Send to Robot'",
+                fg='#00ff00'
+            )
+
     def schedule_update(self):
         """Schedule a robot update with rate limiting"""
         if not self.update_pending:
@@ -521,6 +631,11 @@ class ArmControlGUI(Node):
         for i, angle in enumerate(angles):
             self.joint_sliders[i].set(angle)
             self.target_positions[i] = float(angle)
+        
+        # Update 3D visualization
+        if self.viz_3d:
+            self.viz_3d.set_joint_angles(self.target_positions)
+        
         self.info_label.config(text=f"Preset applied. Click 'Send to Robot' to execute.")
     
     def send_command(self):
@@ -562,6 +677,9 @@ class ArmControlGUI(Node):
             
             joint_state_msg.position = rviz_positions
             self.joint_state_pub.publish(joint_state_msg)
+            
+            # Publish green marker at actual gripper position in RViz
+            self.publish_gripper_marker()
             
             current_speed = self.speed_value.get()
             self.info_label.config(
@@ -738,9 +856,9 @@ class ArmControlGUI(Node):
         marker.scale.y = 0.02
         marker.scale.z = 0.02
         
-        # Color (bright green, semi-transparent)
-        marker.color.r = 0.0
-        marker.color.g = 1.0
+        # Color (orange for target)
+        marker.color.r = 1.0
+        marker.color.g = 0.5
         marker.color.b = 0.0
         marker.color.a = 0.8
         
@@ -748,7 +866,52 @@ class ArmControlGUI(Node):
         marker.lifetime = Duration(sec=0, nanosec=0)
         
         self.marker_pub.publish(marker)
-        self.get_logger().info(f"Published target marker at ({x:.3f}, {y:.3f}, {z:.3f})")
+        self.get_logger().debug(f"Published target marker at ({x:.3f}, {y:.3f}, {z:.3f})")
+    
+    def publish_gripper_marker(self):
+        """Publish a visualization marker at the actual gripper position in RViz"""
+        # Use forward kinematics to calculate actual gripper position
+        base = self.target_positions[0]
+        shoulder = self.target_positions[1]
+        elbow = self.target_positions[2]
+        forearm = self.target_positions[3]
+        wrist = self.target_positions[4]
+        
+        # Calculate end effector position
+        x, y, z, pitch, roll = self.ik_solver.forward_kinematics(
+            base, shoulder, elbow, forearm, wrist
+        )
+        
+        marker = Marker()
+        marker.header.frame_id = "base_link"
+        marker.header.stamp = self.get_clock().now().to_msg()
+        marker.ns = "gripper_position"
+        marker.id = 1
+        marker.type = Marker.SPHERE
+        marker.action = Marker.ADD
+        
+        # Position (in meters)
+        marker.pose.position.x = x
+        marker.pose.position.y = y
+        marker.pose.position.z = z
+        marker.pose.orientation.w = 1.0
+        
+        # Scale (sphere diameter in meters)
+        marker.scale.x = 0.025  # 25mm diameter sphere (slightly larger)
+        marker.scale.y = 0.025
+        marker.scale.z = 0.025
+        
+        # Color (bright green for actual gripper)
+        marker.color.r = 0.0
+        marker.color.g = 1.0
+        marker.color.b = 0.0
+        marker.color.a = 0.9
+        
+        # Lifetime (0 = forever until replaced)
+        marker.lifetime = Duration(sec=0, nanosec=0)
+        
+        self.gripper_marker_pub.publish(marker)
+        self.get_logger().debug(f"Published gripper marker at ({x:.3f}, {y:.3f}, {z:.3f})")
     
     def spin_ros(self):
         """Spin ROS2 node in background thread"""

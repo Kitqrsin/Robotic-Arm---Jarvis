@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Launch file for RViz with GUI control
-Uses the arm_gui instead of joint_state_publisher_gui
+Launch file for RViz with GUI control and Interactive IK Marker
+Uses the arm_gui with 3D visualization and interactive marker for IK control
 """
 import os
 from launch import LaunchDescription
@@ -40,7 +40,7 @@ def generate_launch_description():
             arguments=['-d', '/workspace/robot.rviz']
         ),
         
-        # Arm GUI Controller
+        # Arm GUI Controller with 3D visualization
         Node(
             package='arm_controller',
             executable='arm_gui',
