@@ -15,11 +15,12 @@ class ArmIKSolver:
     """
     
     def __init__(self):
-        # Link lengths (in meters, from URDF measurements)
-        self.L1 = 0.03   # Base to shoulder height (motor1)
-        self.L2 = 0.128  # Shoulder to elbow length (hand_extension)
-        self.L3 = 0.13   # Elbow to wrist length (pipe + part of motor4)
-        self.L4 = 0.08   # Wrist to gripper length (motor4 tip)
+        # Link lengths from URDF joint origin xyz values (in meters)
+        # Measured from robot_fixed.urdf - MUST MATCH arm_3d_visualization.py
+        self.L1 = 0.059   # Base to shoulder height (base joint z=0.0592971)
+        self.L2 = 0.084   # Shoulder to elbow (elbow joint y=0.0841198) - main upper arm!
+        self.L3 = 0.086   # Elbow to wrist (wrist joint dist ~0.086)
+        self.L4 = 0.061   # Wrist to gripper (wrist_rotate joint dist ~0.061)
         
         # Home position (neutral/straight forward)
         self.home_position = {
@@ -33,10 +34,15 @@ class ArmIKSolver:
     
     def solve_ik(self, x, y, z, pitch=0, roll=0, gripper_angle=None):
         """
-        Solve inverse kinematics for target position
+        Solve inverse kinematics for target position.
+        This is the EXACT INVERSE of forward_kinematics().
+        
+        Uses INVERTED angle convention for shoulder/elbow to match RViz:
+        FK uses: shoulder_rad = radians(90.0 - shoulder_degrees)
+        So IK must use: shoulder_degrees = 90.0 - degrees(shoulder_rad)
         
         Args:
-            x, y, z: Target position in meters
+            x, y, z: Target position in meters (gripper_base position)
             pitch: Desired pitch angle of end effector (radians)
             roll: Desired roll angle of end effector (radians)
             gripper_angle: Gripper opening angle (degrees), None to keep current
@@ -44,54 +50,75 @@ class ArmIKSolver:
         Returns:
             dict: Joint angles in degrees, or None if unreachable
         """
+        # Link lengths - MUST MATCH arm_3d_visualization.py and FK
+        L_base = 0.059       # Base to shoulder height
+        L_upper = 0.084      # Shoulder to elbow (main upper arm)
+        L_forearm = 0.086    # Elbow to wrist
         
         # Base rotation (yaw) - rotation around vertical axis
         base_angle = math.atan2(y, x)
+        base_degrees = math.degrees(base_angle) + 90.0
+        base_degrees = max(0, min(180, base_degrees))
         
-        # Distance in XY plane
+        # Distance in XY plane to gripper_base
         r_xy = math.sqrt(x**2 + y**2)
         
-        # Account for wrist offset based on pitch
-        wrist_offset_z = self.L4 * math.sin(pitch)
-        wrist_offset_xy = self.L4 * math.cos(pitch)
+        # Wrist position relative to shoulder (z=0 is at shoulder height)
+        wrist_x = r_xy  # Horizontal distance from base axis
+        wrist_z = z - L_base  # Vertical distance from shoulder
         
-        # Wrist position (target minus end effector offset)
-        wrist_x = r_xy - wrist_offset_xy
-        wrist_z = z - self.L1 - wrist_offset_z
-        
-        # Distance to wrist from shoulder
+        # Distance from shoulder to wrist
         d = math.sqrt(wrist_x**2 + wrist_z**2)
         
         # Check if target is reachable
-        if d > (self.L2 + self.L3) or d < abs(self.L2 - self.L3):
+        if d > (L_upper + L_forearm) or d < abs(L_upper - L_forearm):
             return None  # Target unreachable
+        if d < 0.001:
+            return None  # Too close to shoulder
         
-        # Shoulder angle using law of cosines
-        cos_elbow = (self.L2**2 + self.L3**2 - d**2) / (2 * self.L2 * self.L3)
-        cos_elbow = np.clip(cos_elbow, -1, 1)  # Numerical stability
-        elbow_angle = math.acos(cos_elbow)
+        # Elbow angle using law of cosines
+        # L_upper² + L_forearm² - 2*L_upper*L_forearm*cos(elbow) = d²
+        cos_elbow_internal = (L_upper**2 + L_forearm**2 - d**2) / (2 * L_upper * L_forearm)
+        cos_elbow_internal = np.clip(cos_elbow_internal, -1, 1)
+        elbow_internal = math.acos(cos_elbow_internal)  # Internal angle of elbow triangle
         
-        # Angle from shoulder to wrist
-        alpha = math.atan2(wrist_z, wrist_x)
+        # Elbow angle in arm coordinates: π - internal angle = bend angle
+        elbow_rad = math.pi - elbow_internal
         
-        # Angle of triangle at shoulder
-        cos_beta = (self.L2**2 + d**2 - self.L3**2) / (2 * self.L2 * d)
-        cos_beta = np.clip(cos_beta, -1, 1)
-        beta = math.acos(cos_beta)
+        # Shoulder angle: angle to target minus offset from triangle
+        # gamma = angle from vertical to target
+        gamma = math.atan2(wrist_x, wrist_z)
         
-        shoulder_angle = alpha + beta
+        # alpha = angle in triangle at shoulder
+        cos_alpha = (L_upper**2 + d**2 - L_forearm**2) / (2 * L_upper * d)
+        cos_alpha = np.clip(cos_alpha, -1, 1)
+        alpha = math.acos(cos_alpha)
         
-        # Forearm/wrist angle to achieve desired pitch
-        forearm_angle = pitch - shoulder_angle + elbow_angle
+        # Shoulder rad: gamma - alpha for elbow-up configuration
+        # This makes the arm reach UP towards targets above
+        shoulder_rad = gamma - alpha
         
-        # Convert to degrees
+        # Convert radians to GUI degrees using INVERTED convention
+        # FK uses: shoulder_rad = radians(90.0 - shoulder_degrees)
+        # So IK must use: shoulder_degrees = 90.0 - degrees(shoulder_rad)
+        shoulder_degrees = 90.0 - math.degrees(shoulder_rad)
+        elbow_degrees = 90.0 - math.degrees(elbow_rad)
+        
+        # Forearm: adjust for desired pitch (uses normal convention)
+        arm_angle = shoulder_rad + elbow_rad
+        forearm_rad = pitch - arm_angle
+        forearm_degrees = math.degrees(forearm_rad) + 90.0
+        
+        # Wrist roll
+        wrist_degrees = math.degrees(roll) + 90.0
+        
         joint_angles = {
-            'base': math.degrees(base_angle) + self.home_position['base'],
-            'shoulder': 180 - math.degrees(shoulder_angle),  # Inverted for servo
-            'elbow': 180 - math.degrees(elbow_angle),        # Inverted for servo
-            'forearm': math.degrees(forearm_angle) + self.home_position['forearm'],
-            'wrist': math.degrees(roll) + self.home_position['wrist'],
-            'gripper': gripper_angle if gripper_angle is not None else self.home_position['gripper']
+            'base': base_degrees,
+            'shoulder': shoulder_degrees,
+            'elbow': elbow_degrees,
+            'forearm': forearm_degrees,
+            'wrist': wrist_degrees,
+            'gripper': gripper_angle if gripper_angle is not None else 90.0
         }
         
         # Clamp to safe servo ranges
@@ -101,8 +128,10 @@ class ArmIKSolver:
     
     def _clamp_angles(self, angles):
         """Clamp joint angles to safe servo ranges"""
+        # Base motor is 180 degrees (calibrated at 90 as center)
+        # All other joints are also 180 degree servos
         limits = {
-            'base': (0, 270),
+            'base': (0, 180),
             'shoulder': (0, 180),
             'elbow': (0, 180),
             'forearm': (0, 180),
@@ -119,41 +148,53 @@ class ArmIKSolver:
     
     def forward_kinematics(self, base, shoulder, elbow, forearm, wrist):
         """
-        Calculate end effector position from joint angles
+        Calculate end effector position from joint angles.
+        MUST match arm_3d_visualization.calculate_arm_positions() exactly!
+        Uses SAME angle inversions as RViz/send_command():
+        - Shoulder and Elbow: INVERTED (90.0 - pos)
+        - Others: Normal (pos - 90.0)
         
         Args:
-            Joint angles in degrees
+            Joint angles in degrees (GUI convention: 90° = home)
             
         Returns:
             tuple: (x, y, z, pitch, roll) position and orientation
         """
-        # Convert to radians
-        base_rad = math.radians(base - self.home_position['base'])
-        shoulder_rad = math.radians(180 - shoulder)
-        elbow_rad = math.radians(180 - elbow)
-        forearm_rad = math.radians(forearm - self.home_position['forearm'])
-        wrist_rad = math.radians(wrist - self.home_position['wrist'])
+        # Link lengths from URDF - MUST MATCH arm_3d_visualization.py EXACTLY
+        L_base = 0.059       # Base to shoulder height
+        L_upper = 0.084      # Shoulder to elbow (main upper arm)
+        L_forearm = 0.086    # Elbow to wrist (forearm)
+        L_wrist = 0.061      # Wrist to gripper
         
-        # Calculate positions
-        shoulder_z = self.L1
+        # Convert to radians - SAME as arm_3d_visualization.py and RViz
+        # Shoulder and Elbow use INVERTED conversion to match RViz
+        base_rad = math.radians(base - 90.0)
+        shoulder_rad = math.radians(90.0 - shoulder)  # INVERTED like RViz
+        elbow_rad = math.radians(90.0 - elbow)        # INVERTED like RViz
+        forearm_rad = math.radians(forearm - 90.0)
+        wrist_rad = math.radians(wrist - 90.0)
         
-        # Shoulder link
-        elbow_x = self.L2 * math.cos(shoulder_rad)
-        elbow_z = shoulder_z + self.L2 * math.sin(shoulder_rad)
+        # Calculate positions using SAME math as arm_3d_visualization.py
+        # Elbow joint - uses sin/cos with vertical reference
+        elbow_x = L_upper * math.sin(shoulder_rad)
+        elbow_z = L_base + L_upper * math.cos(shoulder_rad)
         
-        # Elbow link
-        wrist_x = elbow_x + self.L3 * math.cos(shoulder_rad + elbow_rad)
-        wrist_z = elbow_z + self.L3 * math.sin(shoulder_rad + elbow_rad)
+        # Wrist joint - cumulative angle
+        arm_angle = shoulder_rad + elbow_rad
+        wrist_x = elbow_x + L_forearm * math.sin(arm_angle)
+        wrist_z = elbow_z + L_forearm * math.cos(arm_angle)
         
-        # End effector
-        pitch = shoulder_rad + elbow_rad + forearm_rad
-        end_x = wrist_x + self.L4 * math.cos(pitch)
-        end_z = wrist_z + self.L4 * math.sin(pitch)
+        # Gripper position - includes forearm pitch
+        full_angle = arm_angle + forearm_rad
+        gripper_x = wrist_x + L_wrist * math.sin(full_angle)
+        gripper_z = wrist_z + L_wrist * math.cos(full_angle)
         
-        # Apply base rotation
-        x = end_x * math.cos(base_rad)
-        y = end_x * math.sin(base_rad)
-        z = end_z
+        # Apply base rotation for 3D position
+        x = gripper_x * math.cos(base_rad)
+        y = gripper_x * math.sin(base_rad)
+        z = gripper_z
+        
+        pitch = full_angle
         
         return (x, y, z, pitch, wrist_rad)
 

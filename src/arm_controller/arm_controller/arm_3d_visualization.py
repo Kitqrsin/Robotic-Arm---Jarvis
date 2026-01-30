@@ -50,6 +50,11 @@ class Arm3DVisualization:
         # Current joint angles (degrees)
         self.joint_angles = [90.0] * 6
         
+        # Actual gripper position from FK/TF (meters) - separate from computed position
+        self.actual_gripper_x = 0.0
+        self.actual_gripper_y = 0.0
+        self.actual_gripper_z = 0.15
+        
         # Link lengths (from IK solver)
         self.L1 = self.ik_solver.L1
         self.L2 = self.ik_solver.L2
@@ -62,10 +67,14 @@ class Arm3DVisualization:
         self.drag_start_y = 0
         self.rotating_view = False
         
+        # Callback for when user wants to move arm to target
+        self.on_move_to_target = None
+        
         # Create UI
         self.setup_ui()
         
-        # Initial draw
+        # Initial draw - set target to a reasonable default position
+        self.sync_target_to_gripper()
         self.draw_scene()
     
     def setup_ui(self):
@@ -153,6 +162,17 @@ class Arm3DVisualization:
             command=self.reset_target
         ).pack(side=tk.RIGHT, padx=2)
         
+        # Move to Target button
+        self.move_btn = tk.Button(
+            controls_frame,
+            text="Move Arm Here",
+            font=('Arial', 8, 'bold'),
+            bg='#cc6600',
+            fg='white',
+            command=self.trigger_move_to_target
+        )
+        self.move_btn.pack(side=tk.RIGHT, padx=5)
+        
         # Position display
         self.pos_label = tk.Label(
             self.frame,
@@ -166,7 +186,7 @@ class Arm3DVisualization:
         # Instructions
         tk.Label(
             self.frame,
-            text="Left-click: drag target | Right-click: rotate view | Scroll: zoom",
+            text="Drag orange dot to set target | Click 'Move Arm Here' to move",
             font=('Arial', 8),
             bg='#3b3b3b',
             fg='#888888'
@@ -217,11 +237,11 @@ class Arm3DVisualization:
         # Draw workspace boundary (sphere showing reachable area)
         self.draw_workspace()
         
-        # Draw the target point (last, so it's on top)
-        self.draw_target()
+        # Draw the current gripper position (green)
+        self.draw_gripper_marker()
         
-        # Draw actual end effector position marker
-        self.draw_end_effector_marker()
+        # Draw the target point (orange - where user wants to move)
+        self.draw_target()
     
     def draw_grid(self):
         """Draw a grid on the XY plane"""
@@ -286,13 +306,26 @@ class Arm3DVisualization:
                         self.canvas.create_line(points, fill='#334433', width=1, smooth=True)
     
     def draw_arm(self):
-        """Draw the robot arm based on current joint angles"""
+        """Draw the robot arm based on current joint angles.
+        
+        Draws 5 motor joints:
+        1. Base (gray) - ground level
+        2. Shoulder (blue) - top of base
+        3. Elbow (green) - end of upper arm
+        4. Wrist (red) - end of forearm
+        5. Gripper (cyan) - where gripper attaches
+        """
         # Get joint positions using forward kinematics
         positions = self.calculate_arm_positions()
         
-        # Draw links
-        colors = ['#888888', '#666699', '#669966', '#996666', '#669999', '#999966']
+        # Joint colors matching the robot (5 joints)
+        joint_colors = ['#888888', '#6666aa', '#66aa66', '#aa6666', '#66aaaa']
+        joint_names = ['Base', 'Shoulder', 'Elbow', 'Wrist', 'Gripper']
         
+        # Link colors
+        link_colors = ['#888888', '#666699', '#669966', '#996666']
+        
+        # Draw links first (behind joints)
         for i in range(len(positions) - 1):
             p1 = positions[i]
             p2 = positions[i + 1]
@@ -301,78 +334,111 @@ class Arm3DVisualization:
             x2, y2 = self.project_3d_to_2d(*p2)
             
             # Draw link
-            self.canvas.create_line(x1, y1, x2, y2, fill=colors[i % len(colors)], width=6)
-            
-            # Draw joint
-            self.canvas.create_oval(x1 - 5, y1 - 5, x1 + 5, y1 + 5, 
-                                   fill='#aaaaaa', outline='#ffffff', width=1)
+            self.canvas.create_line(x1, y1, x2, y2, fill=link_colors[i % len(link_colors)], width=6)
         
-        # Draw end effector
-        end_pos = positions[-1]
-        ex, ey = self.project_3d_to_2d(*end_pos)
-        self.canvas.create_oval(ex - 6, ey - 6, ex + 6, ey + 6,
-                               fill='#44ff44', outline='#ffffff', width=2)
+        # Draw all 5 joints
+        for i, pos in enumerate(positions):
+            jx, jy = self.project_3d_to_2d(*pos)
+            color = joint_colors[i] if i < len(joint_colors) else '#aaaaaa'
+            
+            # Draw joint circle (larger for gripper)
+            radius = 7 if i == 4 else 5
+            self.canvas.create_oval(
+                jx - radius, jy - radius, jx + radius, jy + radius,
+                fill=color, outline='#ffffff', width=1
+            )
     
     def calculate_arm_positions(self):
-        """Calculate 3D positions of all arm joints using forward kinematics"""
-        # Extract angles
+        """Calculate 3D positions of arm joints for schematic visualization.
+        
+        This matches the RViz model EXACTLY using URDF joint origins.
+        5 motor joints: base, shoulder, elbow, forearm (wrist), gripper
+        
+        Uses the same angle conversions as send_command() in arm_gui.py:
+        - Shoulder and Elbow: INVERTED (90.0 - pos) to match RViz
+        - Others: Normal (pos - 90.0)
+        
+        At 90° (home position), the arm should point straight up.
+        """
+        # Get joint angles in degrees (GUI convention)
         base = self.joint_angles[0]
         shoulder = self.joint_angles[1]
         elbow = self.joint_angles[2]
         forearm = self.joint_angles[3]
-        wrist = self.joint_angles[4]
+        wrist_rotate = self.joint_angles[4] if len(self.joint_angles) > 4 else 90.0
         
-        # Get home positions from IK solver
-        home = self.ik_solver.home_position
+        # Convert to radians for Tkinter visualization
+        # MUST MATCH RViz conversions in arm_gui.py send_command()
         
-        # Convert to radians relative to home
-        base_rad = math.radians(base - home['base'])
-        shoulder_rad = math.radians(180 - shoulder)
-        elbow_rad = math.radians(180 - elbow)
-        forearm_rad = math.radians(forearm - home['forearm'])
+        # Base: 90° = pointing along +X axis (normal conversion)
+        base_rad = math.radians(base - 90.0)
         
-        # Position calculations
+        # Shoulder: INVERTED to match RViz (90.0 - pos)
+        shoulder_rad = math.radians(90.0 - shoulder)
+        
+        # Elbow: INVERTED to match RViz (90.0 - pos)
+        elbow_rad = math.radians(90.0 - elbow)
+        
+        # Forearm/Wrist pitch - normal conversion
+        forearm_rad = math.radians(forearm - 90.0)
+        
+        # Link lengths from URDF joint origin xyz values (in meters)
+        # Measured from robot_fixed.urdf joint definitions:
+        # base joint: xyz="0.0284017 -0.00137038 0.0592971" -> z=0.059
+        # shoulder joint: xyz="-0.0281584 0.0201485 0.0113428" -> ~0.036
+        # elbow joint: xyz="-0.000476914 0.0841198 -0.00387217" -> y=0.084
+        # wrist joint: xyz="0.0565214 0.0648797 -0.000297974" -> dist=0.086
+        # wrist_rotate joint: xyz="0.0475547 0.0385425 0.027714" -> dist=0.061
+        L_base = 0.059       # Base to shoulder height (base joint z)
+        L_upper = 0.084      # Shoulder to elbow (elbow joint y - main link!)
+        L_forearm = 0.086    # Elbow to wrist (wrist joint distance)
+        L_wrist = 0.061      # Wrist to gripper (wrist_rotate joint distance)
+        
         positions = []
         
-        # Base (origin)
+        # Joint 1: Base motor (origin at ground level)
         positions.append((0, 0, 0))
         
-        # Shoulder (top of base)
-        positions.append((0, 0, self.L1))
+        # Joint 2: Shoulder motor (top of base pedestal)
+        positions.append((0, 0, L_base))
         
-        # Elbow
-        elbow_x = self.L2 * math.cos(shoulder_rad)
-        elbow_z = self.L1 + self.L2 * math.sin(shoulder_rad)
+        # Joint 3: Elbow motor
+        # Shoulder rotates the upper arm in vertical plane
+        # At shoulder_rad=0 (GUI 90°), arm points straight up
+        elbow_x = L_upper * math.sin(shoulder_rad)
+        elbow_z = L_base + L_upper * math.cos(shoulder_rad)
         positions.append((
             elbow_x * math.cos(base_rad),
             elbow_x * math.sin(base_rad),
             elbow_z
         ))
         
-        # Wrist
-        cumulative_angle = shoulder_rad - elbow_rad
-        wrist_x = elbow_x + self.L3 * math.cos(cumulative_angle)
-        wrist_z = elbow_z + self.L3 * math.sin(cumulative_angle)
+        # Joint 4: Forearm/Wrist motor
+        # Cumulative angle for forearm
+        arm_angle = shoulder_rad + elbow_rad
+        wrist_x = elbow_x + L_forearm * math.sin(arm_angle)
+        wrist_z = elbow_z + L_forearm * math.cos(arm_angle)
         positions.append((
             wrist_x * math.cos(base_rad),
             wrist_x * math.sin(base_rad),
             wrist_z
         ))
         
-        # End effector
-        pitch = cumulative_angle + forearm_rad
-        end_x = wrist_x + self.L4 * math.cos(pitch)
-        end_z = wrist_z + self.L4 * math.sin(pitch)
+        # Joint 5: Gripper motor (wrist rotate / gripper base)
+        # This is where the gripper attaches - add forearm pitch
+        full_angle = arm_angle + forearm_rad
+        gripper_x = wrist_x + L_wrist * math.sin(full_angle)
+        gripper_z = wrist_z + L_wrist * math.cos(full_angle)
         positions.append((
-            end_x * math.cos(base_rad),
-            end_x * math.sin(base_rad),
-            end_z
+            gripper_x * math.cos(base_rad),
+            gripper_x * math.sin(base_rad),
+            gripper_z
         ))
         
         return positions
     
     def draw_target(self):
-        """Draw the draggable target point"""
+        """Draw the draggable target point (orange ball - where user wants arm to go)"""
         tx, ty = self.project_3d_to_2d(self.target_x, self.target_y, self.target_z)
         
         # Draw target sphere (larger, orange)
@@ -397,29 +463,62 @@ class Arm3DVisualization:
             ground_x - 4, ground_y - 4, ground_x + 4, ground_y + 4,
             fill='#ff8800', outline='', tags='target'
         )
+        
+        # Label
+        self.canvas.create_text(
+            tx, ty - radius - 12,
+            text='Target',
+            fill='#ff8800',
+            font=('Arial', 8, 'bold')
+        )
     
-    def draw_end_effector_marker(self):
-        """Draw marker showing actual end effector position from forward kinematics"""
-        # Get actual end effector position from arm
+    def draw_gripper_marker(self):
+        """Draw the current gripper position (green ball) - uses actual FK position from TF"""
+        # Use the actual gripper position from FK/TF, not calculated geometry
+        gx, gy = self.project_3d_to_2d(self.actual_gripper_x, self.actual_gripper_y, self.actual_gripper_z)
+        
+        # Draw gripper marker (green, slightly smaller)
+        radius = 8
+        self.canvas.create_oval(
+            gx - radius, gy - radius, gx + radius, gy + radius,
+            fill='#00ff00', outline='#ffffff', width=2
+        )
+        
+        # Label
+        self.canvas.create_text(
+            gx, gy + radius + 10,
+            text='Gripper',
+            fill='#00ff00',
+            font=('Arial', 8, 'bold')
+        )
+        
+        # Update the position label to show both
+        self.update_position_label()
+    
+    def sync_target_to_gripper(self):
+        """
+        Sync the target position to the current gripper position
+        calculated from the arm's forward kinematics.
+        """
+        # Use calculate_arm_positions to get actual gripper position
+        # This ensures consistency with how the arm is drawn
         positions = self.calculate_arm_positions()
         if len(positions) > 0:
-            end_pos = positions[-1]  # Last position is end effector
-            ex, ey = self.project_3d_to_2d(*end_pos)
-            
-            # Draw small green circle to show actual gripper position
-            radius = 8
-            self.canvas.create_oval(
-                ex - radius, ey - radius, ex + radius, ey + radius,
-                fill='#00ff00', outline='#ffffff', width=2
-            )
-            
-            # Label
-            self.canvas.create_text(
-                ex, ey - radius - 12,
-                text='Gripper',
-                fill='#00ff00',
-                font=('Arial', 8, 'bold')
-            )
+            end_pos = positions[-1]
+            self.target_x = end_pos[0]
+            self.target_y = end_pos[1]
+            self.target_z = end_pos[2]
+            self.update_position_label()
+    
+    def trigger_move_to_target(self):
+        """Trigger the callback to move arm to target position"""
+        print(f"Tkinter trigger_move_to_target: X={self.target_x:.3f}, Y={self.target_y:.3f}, Z={self.target_z:.3f}")
+        if self.on_target_move:
+            self.on_target_move(self.target_x, self.target_y, self.target_z)
+    
+    def set_move_callback(self, callback):
+        """Set the callback for when user clicks Move to Target"""
+        self.on_move_to_target = callback
     
     def set_view(self, azimuth, elevation):
         """Set the view angle"""
@@ -428,15 +527,9 @@ class Arm3DVisualization:
         self.draw_scene()
     
     def reset_target(self):
-        """Reset target to default position"""
-        self.target_x = 0.2
-        self.target_y = 0.0
-        self.target_z = 0.15
-        self.update_position_label()
+        """Reset target to current gripper position"""
+        self.sync_target_to_gripper()
         self.draw_scene()
-        
-        if self.on_target_move:
-            self.on_target_move(self.target_x, self.target_y, self.target_z)
     
     def update_position_label(self):
         """Update the position display label"""
@@ -471,26 +564,35 @@ class Arm3DVisualization:
             # Movement scale
             scale = 1.0 / self.zoom
             
-            # Calculate movement in camera space
-            # Horizontal screen movement affects X and Y based on azimuth
-            # Right movement in screen = positive along camera's right vector
-            camera_right_x = -math.sin(az)  # Perpendicular to view direction
-            camera_right_y = math.cos(az)
+            # The projection uses:
+            # screen_x = center + x_rot * zoom, where x_rot = x*cos(az) - y*sin(az)
+            # screen_y = center - z_final * zoom, where z_final = y*sin(el) + z*cos(el)
+            #
+            # So to invert: moving right on screen (positive dx) should increase x_rot
+            # And moving up on screen (negative dy) should increase z_final
             
-            # Vertical screen movement affects Z and the depth direction
-            # Up movement = positive Z minus some depth based on elevation
-            vertical_z_component = math.cos(el)
-            vertical_depth_component = math.sin(el)
+            # For horizontal screen movement (dx):
+            # This maps to movement in the x_rot direction
+            # x_rot = x*cos(az) - y*sin(az), so we need to move in world coords
+            # To increase x_rot: increase x (proportional to cos(az)) or decrease y (proportional to sin(az))
+            world_dx_from_horizontal = dx * scale * math.cos(az)
+            world_dy_from_horizontal = -dx * scale * math.sin(az)
             
-            # Apply movements
-            world_dx = dx * scale * camera_right_x
-            world_dy = dx * scale * camera_right_y
+            # For vertical screen movement (dy):
+            # screen_y decreases when z_final increases (note the minus sign in projection)
+            # z_final = y_rot*sin(el) + z*cos(el)
+            # y_rot = x*sin(az) + y*cos(az)
+            # Moving up on screen (dy < 0) should increase z_final
+            # So we use -dy to get the z increase
+            world_dz_from_vertical = -dy * scale * math.cos(el)
+            # Also affects y_rot component
+            world_dx_from_vertical = -dy * scale * math.sin(el) * math.sin(az)
+            world_dy_from_vertical = -dy * scale * math.sin(el) * math.cos(az)
             
-            # For vertical: mostly Z, but also move toward/away from camera based on elevation
-            world_dz = -dy * scale * vertical_z_component
-            # Also move in XY plane based on elevation and azimuth
-            world_dx += dy * scale * vertical_depth_component * math.cos(az)
-            world_dy += dy * scale * vertical_depth_component * math.sin(az)
+            # Combine movements
+            world_dx = world_dx_from_horizontal + world_dx_from_vertical
+            world_dy = world_dy_from_horizontal + world_dy_from_vertical
+            world_dz = world_dz_from_vertical
             
             # Update target position
             self.target_x += world_dx
@@ -506,12 +608,9 @@ class Arm3DVisualization:
             self.drag_start_x = event.x
             self.drag_start_y = event.y
             
-            # Update display and callback
+            # Update display only - don't trigger IK during drag
             self.update_position_label()
             self.draw_scene()
-            
-            if self.on_target_move:
-                self.on_target_move(self.target_x, self.target_y, self.target_z)
     
     def on_mouse_up(self, event):
         """Handle left mouse button release"""
@@ -598,4 +697,14 @@ class Arm3DVisualization:
             if joint in joint_angles_dict:
                 self.joint_angles[idx] = joint_angles_dict[joint]
         
+        # After IK solution, target should already be at desired position
+        # (the target was dragged there), so don't sync back
+        self.draw_scene()
+    
+    def set_actual_gripper_position(self, x, y, z):
+        """Set the actual gripper position from FK/TF (for accurate green marker)"""
+        print(f"Tkinter set_actual_gripper_position: X={x:.3f}, Y={y:.3f}, Z={z:.3f}")
+        self.actual_gripper_x = x
+        self.actual_gripper_y = y
+        self.actual_gripper_z = z
         self.draw_scene()

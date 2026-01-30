@@ -16,9 +16,17 @@ from std_msgs.msg import Float32MultiArray, Float32, Bool
 from visualization_msgs.msg import Marker
 from builtin_interfaces.msg import Duration
 
-# Import IK solver and 3D visualization
+# Import IK solvers and 3D visualization
 from arm_controller.ik_solver import ArmIKSolver
 from arm_controller.arm_3d_visualization import Arm3DVisualization
+
+# Try to import MoveIt IK client (optional)
+try:
+    from arm_controller.moveit_ik_client import MoveItIKClient
+    MOVEIT_AVAILABLE = True
+except ImportError:
+    MOVEIT_AVAILABLE = False
+    MoveItIKClient = None
 
 
 class ArmControlGUI(Node):
@@ -37,15 +45,39 @@ class ArmControlGUI(Node):
             'elbow',          # Elbow pitch (J3)
             'wrist',          # Wrist pitch (J4)
             'wrist_rotate',   # Wrist roll (J5)
-            'gripper'         # Gripper (J6)
+            'gripper'         # Gripper (J6) - internal name for hardware
+        ]
+        
+        # Joint names for MoveIt planning (5 DOF arm - excludes gripper)
+        self.moveit_joint_names = [
+            'base',
+            'shoulder', 
+            'elbow',
+            'wrist',
+            'wrist_rotate'
+        ]
+        
+        # Joint names for RViz visualization (includes gripper_base for visualization)
+        # The URDF has a 'gripper_base' joint that controls gripper fingers
+        self.rviz_joint_names = [
+            'base',
+            'shoulder',
+            'elbow',
+            'wrist',
+            'wrist_rotate',
+            'gripper_base'   # URDF gripper joint name
         ]
         
         # Current joint positions (in degrees)
         self.current_positions = [90.0] * 6
         self.target_positions = [90.0] * 6
         
-        # Initialize IK solver
-        self.ik_solver = ArmIKSolver()
+        # Initialize IK solvers
+        # Custom geometric solver as fallback
+        self.custom_ik_solver = ArmIKSolver()
+        # MoveIt IK client (will be initialized after node setup)
+        self.moveit_ik = None
+        self.use_moveit = True  # Prefer MoveIt when available
         
         # 3D visualization (will be set up in setup_gui)
         self.viz_3d = None
@@ -108,6 +140,14 @@ class ArmControlGUI(Node):
         
         # Track emergency stop state
         self.estop_active = False
+        
+        # Initialize MoveIt IK client (if available)
+        if MOVEIT_AVAILABLE:
+            self.moveit_ik = MoveItIKClient(self)
+            self.get_logger().info("MoveIt IK client initialized")
+        else:
+            self.moveit_ik = None
+            self.get_logger().warn("MoveIt not available - using custom geometric IK only")
         
         # GUI Elements
         self.setup_gui()
@@ -415,7 +455,7 @@ class ArmControlGUI(Node):
         
         self.viz_3d = Arm3DVisualization(
             viz_panel,
-            self.ik_solver,
+            self.custom_ik_solver,  # Use custom solver for visualization FK
             on_target_move_callback=self.on_3d_target_move
         )
         
@@ -532,10 +572,67 @@ class ArmControlGUI(Node):
         except ValueError:
             pass  # Ignore invalid input
     
+    def solve_ik(self, x, y, z, pitch=0.0, roll=0.0, gripper_angle=None):
+        """
+        Solve inverse kinematics using MoveIt (preferred) or custom solver (fallback).
+        
+        Args:
+            x, y, z: Target position in meters
+            pitch, roll: End effector orientation in radians
+            gripper_angle: Gripper opening angle in degrees
+            
+        Returns:
+            Dict of joint angles in degrees, or None if IK fails
+        """
+        joint_angles = None
+        
+        # Build current seed state from GUI positions
+        seed_state = {
+            'base': self.target_positions[0],
+            'shoulder': self.target_positions[1],
+            'elbow': self.target_positions[2],
+            'wrist': self.target_positions[3],
+            'wrist_rotate': self.target_positions[4],
+        }
+        
+        # Try MoveIt first if available
+        if self.use_moveit and self.moveit_ik and self.moveit_ik.is_available():
+            self.get_logger().debug("Using MoveIt IK solver...")
+            joint_angles = self.moveit_ik.solve_ik(x, y, z, pitch, roll, gripper_angle, seed_state)
+            if joint_angles:
+                self.info_label.config(text="[MoveIt IK] ", fg='#00ff88')
+        
+        # Fall back to custom solver
+        if joint_angles is None:
+            self.get_logger().debug("Using custom geometric IK solver...")
+            joint_angles = self.custom_ik_solver.solve_ik(x, y, z, pitch, roll, gripper_angle)
+            if joint_angles:
+                self.get_logger().info("Using custom geometric IK (MoveIt unavailable)")
+        
+        return joint_angles
+    
+    def forward_kinematics(self, base, shoulder, elbow, forearm, wrist):
+        """
+        Calculate end effector position using MoveIt (TF) or custom FK.
+        
+        Args:
+            Joint angles in degrees (GUI convention: 90° = home)
+            
+        Returns:
+            Tuple of (x, y, z, pitch, roll)
+        """
+        # Try MoveIt/TF first if available
+        if self.use_moveit and self.moveit_ik:
+            return self.moveit_ik.forward_kinematics(base, shoulder, elbow, forearm, wrist)
+        
+        # Fall back to custom solver
+        return self.custom_ik_solver.forward_kinematics(base, shoulder, elbow, forearm, wrist)
+    
     def on_3d_target_move(self, x, y, z):
         """
-        Callback when the 3D visualization target is moved.
-        Updates cartesian controls and solves IK.
+        Callback when user clicks 'Move Arm Here' in 3D visualization.
+        Solves IK and moves the arm to the target position with smooth interpolation.
+        Makes the gripper point at the target.
         
         Args:
             x, y, z: Target position in meters
@@ -561,8 +658,8 @@ class ArmControlGUI(Node):
         self.cartesian_labels['Y'].config(text=f"{int(y_mm)} mm")
         self.cartesian_labels['Z'].config(text=f"{int(z_mm)} mm")
         
-        # Solve IK
-        joint_angles = self.ik_solver.solve_ik(x, y, z, pitch=0, roll=0)
+        # Solve IK for target position
+        joint_angles = self.solve_ik(x, y, z, pitch=0, roll=0)
         
         if joint_angles is None:
             self.info_label.config(
@@ -581,28 +678,121 @@ class ArmControlGUI(Node):
             'gripper': 5
         }
         
-        # Update sliders with IK solution
+        # Store target angles for smooth interpolation
+        target_angles = [0.0] * 6
         for ik_joint, gui_idx in ik_to_gui_mapping.items():
             angle = joint_angles[ik_joint]
             angle = max(0, min(180, angle))
-            self.joint_sliders[gui_idx].set(angle)
-            self.target_positions[gui_idx] = angle
+            target_angles[gui_idx] = angle
         
-        # Update 3D visualization with the IK solution
-        if self.viz_3d:
-            self.viz_3d.update_from_ik_solution(joint_angles)
+        # Calculate gripper position with IK solution to get pointing angle
+        # Use forward kinematics to find where gripper will be
+        fk_x, fk_y, fk_z, _, _ = self.forward_kinematics(
+            target_angles[0], target_angles[1], target_angles[2], 
+            target_angles[3], target_angles[4]
+        )
+        
+        # Calculate angle from gripper to target for wrist orientation
+        dx = x - fk_x
+        dy = y - fk_y
+        dz = z - fk_z
+        
+        # Calculate pitch angle (vertical pointing)
+        horizontal_dist = math.sqrt(dx**2 + dy**2)
+        pitch_to_target = math.degrees(math.atan2(dz, horizontal_dist))
+        
+        # Adjust wrist angle to point at target
+        # The wrist angle controls pitch relative to the arm orientation
+        # We need to calculate the arm's current pitch and adjust accordingly
+        shoulder_angle = target_angles[1]
+        elbow_angle = target_angles[2]
+        
+        # Arm pitch is combination of shoulder and elbow
+        arm_pitch = (shoulder_angle - 90.0) + (elbow_angle - 90.0)
+        
+        # Set wrist to make gripper point at target
+        wrist_adjustment = pitch_to_target - arm_pitch
+        target_angles[3] = max(0, min(180, 90.0 + wrist_adjustment))
         
         # Publish target marker for RViz
         self.publish_target_marker(x, y, z)
         
-        # Real-time mode: auto-send to robot
-        if self.realtime_mode.get():
-            self.schedule_update()
-        else:
-            self.info_label.config(
-                text=f"✓ IK solved for ({int(x_mm)}, {int(y_mm)}, {int(z_mm)}) mm. Click 'Send to Robot'",
-                fg='#00ff00'
-            )
+        # Start smooth interpolation to target
+        self.info_label.config(
+            text=f"→ Moving to ({int(x_mm)}, {int(y_mm)}, {int(z_mm)}) mm...",
+            fg='#00aaff'
+        )
+        self.interpolate_to_target(target_angles)
+
+    def interpolate_to_target(self, target_angles, steps=30, delay_ms=50):
+        """
+        Smoothly interpolate from current position to target angles.
+        
+        Args:
+            target_angles: List of target joint angles (degrees)
+            steps: Number of interpolation steps
+            delay_ms: Delay between steps in milliseconds
+        """
+        # Get current positions
+        start_angles = self.target_positions.copy()
+        
+        # Calculate increments for each joint
+        increments = [(target - start) / steps for start, target in zip(start_angles, target_angles)]
+        
+        def step_interpolation(current_step):
+            if current_step >= steps:
+                # Final step - set exact target
+                for i, angle in enumerate(target_angles):
+                    self.joint_sliders[i].set(angle)
+                    self.target_positions[i] = angle
+                
+                # Update 3D visualization
+                if self.viz_3d:
+                    joint_angles_dict = {
+                        'base': target_angles[0],
+                        'shoulder': target_angles[1],
+                        'elbow': target_angles[2],
+                        'forearm': target_angles[3],
+                        'wrist': target_angles[4],
+                        'gripper': target_angles[5]
+                    }
+                    self.viz_3d.update_from_ik_solution(joint_angles_dict)
+                
+                # Send final command
+                self.send_command()
+                
+                self.info_label.config(
+                    text="✓ Movement complete",
+                    fg='#00ff00'
+                )
+                return
+            
+            # Calculate intermediate angles
+            for i in range(6):
+                intermediate = start_angles[i] + increments[i] * current_step
+                self.joint_sliders[i].set(intermediate)
+                self.target_positions[i] = intermediate
+            
+            # Send intermediate command
+            self.send_command()
+            
+            # Update 3D visualization
+            if self.viz_3d:
+                joint_angles_dict = {
+                    'base': self.target_positions[0],
+                    'shoulder': self.target_positions[1],
+                    'elbow': self.target_positions[2],
+                    'forearm': self.target_positions[3],
+                    'wrist': self.target_positions[4],
+                    'gripper': self.target_positions[5]
+                }
+                self.viz_3d.update_from_ik_solution(joint_angles_dict)
+            
+            # Schedule next step
+            self.root.after(delay_ms, lambda: step_interpolation(current_step + 1))
+        
+        # Start interpolation
+        step_interpolation(0)
 
     def schedule_update(self):
         """Schedule a robot update with rate limiting"""
@@ -660,16 +850,25 @@ class ArmControlGUI(Node):
             # For RViz visualization: URDF joints expect 0 radians as the "home" position
             # So we need to convert: GUI 90° should display as 0 radians in RViz
             # This means: radians = (GUI_degrees - 90) * pi/180
-            # Elbow (index 2) needs to be inverted for correct visualization
+            # Some joints need inversion based on URDF joint axis orientation
             joint_state_msg = JointState()
             joint_state_msg.header.stamp = self.get_clock().now().to_msg()
-            joint_state_msg.name = self.joint_names
+            # Publish all 6 joints including gripper_base for complete visualization
+            joint_state_msg.name = self.rviz_joint_names
             
-            # Build joint positions with elbow inversion for RViz
+            # Build joint positions for RViz (all 6 joints)
+            # The URDF has complex joint orientations, we need to match them:
+            # - base: normal (positive = counter-clockwise when viewed from above)
+            # - shoulder: inverted (positive in GUI = negative in URDF to lift arm up)
+            # - elbow: inverted (positive in GUI = negative in URDF to bend arm)
+            # - wrist: normal
+            # - wrist_rotate: normal
+            # - gripper_base: normal (controls gripper fingers)
             rviz_positions = []
-            for i, pos in enumerate(self.target_positions):
-                if i == 2:  # Elbow joint - invert for RViz
-                    # Invert: if GUI shows 90°, RViz shows 0°; if GUI shows 0°, RViz shows +90°
+            for i, pos in enumerate(self.target_positions):  # All 6 joints
+                if i == 1:  # Shoulder - invert for correct up/down motion
+                    rviz_positions.append(float(math.radians(90.0 - pos)))
+                elif i == 2:  # Elbow joint - invert for correct bend direction
                     rviz_positions.append(float(math.radians(90.0 - pos)))
                 else:
                     # Normal conversion: 90° GUI = 0 rad RViz
@@ -751,8 +950,8 @@ class ArmControlGUI(Node):
                 )
                 self.root.update()
             
-            # Solve IK (pitch=0 for horizontal gripper, roll=0)
-            joint_angles = self.ik_solver.solve_ik(x_m, y_m, z_m, pitch=0, roll=0)
+            # Solve IK using MoveIt or fallback (pitch=0 for horizontal gripper, roll=0)
+            joint_angles = self.solve_ik(x_m, y_m, z_m, pitch=0, roll=0)
             
             if joint_angles is None:
                 if show_feedback:
@@ -877,10 +1076,19 @@ class ArmControlGUI(Node):
         forearm = self.target_positions[3]
         wrist = self.target_positions[4]
         
-        # Calculate end effector position
-        x, y, z, pitch, roll = self.ik_solver.forward_kinematics(
+        # Calculate end effector position using MoveIt or fallback FK
+        x, y, z, pitch, roll = self.forward_kinematics(
             base, shoulder, elbow, forearm, wrist
         )
+        
+        # Debug: Print FK position
+        self.get_logger().info(f'FK Position: X={x:.3f}, Y={y:.3f}, Z={z:.3f}')
+        
+        # Update Tkinter 3D visualization with actual FK position from TF
+        if self.viz_3d:
+            self.viz_3d.set_joint_angles(self.target_positions)
+            # Set the actual gripper position from FK/TF for accurate green marker
+            self.viz_3d.set_actual_gripper_position(x, y, z)
         
         marker = Marker()
         marker.header.frame_id = "base_link"

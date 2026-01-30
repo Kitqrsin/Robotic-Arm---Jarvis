@@ -7,7 +7,7 @@ This guide shows you how to launch the fully integrated robotic arm with MoveIt 
 ## Prerequisites
 
 1. Docker container running: `ros2_robot_arm`
-2. Hardware connected: Raspberry Pi 5, PCA9685, 6× MG996R servos
+2. Hardware connected: Raspberry Pi 5, PCA9685, 5× MG996R servos 1x DS35MG-270
 3. ROS2 workspace built: `colcon build` completed
 
 ## Launch Sequence
@@ -22,7 +22,7 @@ ros2 run arm_controller servo_node
 
 **What it does:**
 - Initializes PCA9685 (I2C 0x40)
-- Controls 6 servos on channels [0,1,2,5,4,6]
+- Controls 6 servos on channels [0,1,2,4,5,6]
 - Subscribes to `/joint_commands` for target positions
 - Manages GPIO17 OE pin for emergency stop
 - Provides speed control (1-100%)

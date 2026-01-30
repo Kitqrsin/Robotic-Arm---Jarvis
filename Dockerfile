@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y \
     ros-humble-xacro \
     ros-humble-rviz2 \
     ros-humble-robot-state-publisher \
+    ros-humble-moveit \
     python3-tk \
     && rm -rf /var/lib/apt/lists/*
 
