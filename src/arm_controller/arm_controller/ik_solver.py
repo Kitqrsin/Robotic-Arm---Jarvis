@@ -31,8 +31,11 @@ class ArmIKSolver:
             'wrist': 60,     # w - wrist
             'gripper': 90    # g - gripper
         }
+        
+        # Cache for previous solution to speed up solution selection
+        self.previous_solution = None
     
-    def solve_ik(self, x, y, z, pitch=0, roll=0, gripper_angle=None):
+    def solve_ik(self, x, y, z, pitch=0, roll=0, gripper_angle=None, seed_state=None):
         """
         Solve inverse kinematics for target position.
         This is the EXACT INVERSE of forward_kinematics().
@@ -42,33 +45,65 @@ class ArmIKSolver:
         So IK must use: shoulder_degrees = 90.0 - degrees(shoulder_rad)
         
         Args:
-            x, y, z: Target position in meters (gripper_base position)
+            x, y, z: Target position in meters (GRIPPER position at 5th joint)
             pitch: Desired pitch angle of end effector (radians)
             roll: Desired roll angle of end effector (radians)
             gripper_angle: Gripper opening angle (degrees), None to keep current
+            seed_state: Previous joint angles dict (optional, for solution selection)
             
         Returns:
             dict: Joint angles in degrees, or None if unreachable
         """
+        # Use seed_state or previous solution for continuity
+        if seed_state is None:
+            seed_state = self.previous_solution if self.previous_solution else self.home_position
         # Link lengths - MUST MATCH arm_3d_visualization.py and FK
         L_base = 0.059       # Base to shoulder height
         L_upper = 0.084      # Shoulder to elbow (main upper arm)
         L_forearm = 0.086    # Elbow to wrist
+        L_wrist = 0.061      # Wrist to gripper (5th joint)
         
         # Base rotation (yaw) - rotation around vertical axis
+        # The base servo can only rotate 0-180°, which covers the +X half-plane
+        # atan2 gives angle from +X axis: 0 at +X, ±π at -X
+        # Our base: 90° = +X, 0° = -Y, 180° = +Y
+        # So targets at X<0 with small |Y| are UNREACHABLE
         base_angle = math.atan2(y, x)
         base_degrees = math.degrees(base_angle) + 90.0
+        
+        # Check if target direction is reachable with base servo limits
+        # Allow small tolerance for numerical precision
+        if base_degrees < -5 or base_degrees > 185:
+            return None  # Target is in the -X half-plane, unreachable
+        
         base_degrees = max(0, min(180, base_degrees))
         
-        # Distance in XY plane to gripper_base
+        # Distance in XY plane to GRIPPER
         r_xy = math.sqrt(x**2 + y**2)
         
-        # Wrist position relative to shoulder (z=0 is at shoulder height)
-        wrist_x = r_xy  # Horizontal distance from base axis
-        wrist_z = z - L_base  # Vertical distance from shoulder
+        # Handle case when target is very close to origin (directly above base)
+        if r_xy < 0.001:
+            # Target is directly above base, use current base angle
+            base_degrees = 90.0  # Default to forward
         
-        # Distance from shoulder to wrist
-        d = math.sqrt(wrist_x**2 + wrist_z**2)
+        # Work backwards: gripper is at (x,y,z), need to find wrist position
+        # The gripper extends from wrist at angle = full_angle = arm_angle + forearm_rad
+        # full_angle should match desired pitch
+        # gripper_x = wrist_x + L_wrist * sin(full_angle)
+        # gripper_z = wrist_z + L_wrist * cos(full_angle)
+        # 
+        # Solving for wrist position:
+        # wrist_x = gripper_x - L_wrist * sin(pitch)
+        # wrist_z = gripper_z - L_wrist * cos(pitch)
+        #
+        # In 2D projection (from base axis):
+        # wrist_r = r_xy - L_wrist * sin(pitch)
+        # wrist_z = (z - L_base) - L_wrist * cos(pitch)
+        wrist_r = r_xy - L_wrist * math.sin(pitch)  # Horizontal distance to wrist from base axis
+        wrist_z = (z - L_base) - L_wrist * math.cos(pitch)  # Vertical distance to wrist from shoulder
+        
+        # Distance from shoulder to wrist in 2D vertical plane
+        d = math.sqrt(wrist_r**2 + wrist_z**2)
         
         # Check if target is reachable
         if d > (L_upper + L_forearm) or d < abs(L_upper - L_forearm):
@@ -86,8 +121,8 @@ class ArmIKSolver:
         elbow_rad = math.pi - elbow_internal
         
         # Shoulder angle: angle to target minus offset from triangle
-        # gamma = angle from vertical to target
-        gamma = math.atan2(wrist_x, wrist_z)
+        # gamma = angle from vertical to WRIST (not gripper)
+        gamma = math.atan2(wrist_r, wrist_z)
         
         # alpha = angle in triangle at shoulder
         cos_alpha = (L_upper**2 + d**2 - L_forearm**2) / (2 * L_upper * d)
@@ -99,12 +134,17 @@ class ArmIKSolver:
         shoulder_rad = gamma - alpha
         
         # Convert radians to GUI degrees using INVERTED convention
-        # FK uses: shoulder_rad = radians(90.0 - shoulder_degrees)
-        # So IK must use: shoulder_degrees = 90.0 - degrees(shoulder_rad)
+        # FK uses: joint_rad = radians(90.0 - joint_degrees)
+        # So IK must use: joint_degrees = 90.0 - degrees(joint_rad)
         shoulder_degrees = 90.0 - math.degrees(shoulder_rad)
         elbow_degrees = 90.0 - math.degrees(elbow_rad)
         
-        # Forearm: adjust for desired pitch (uses normal convention)
+        # Forearm: adjust for desired pitch (NORMAL convention for hardware)
+        # full_angle = arm_angle + forearm_rad should equal pitch
+        # Hardware expects: forearm_degrees where higher = pitch down
+        # Visualization uses inverted display, but hardware gets normal value
+        # forearm_rad = pitch - arm_angle
+        # forearm_degrees = degrees(forearm_rad) + 90.0
         arm_angle = shoulder_rad + elbow_rad
         forearm_rad = pitch - arm_angle
         forearm_degrees = math.degrees(forearm_rad) + 90.0
@@ -123,6 +163,9 @@ class ArmIKSolver:
         
         # Clamp to safe servo ranges
         joint_angles = self._clamp_angles(joint_angles)
+        
+        # Cache solution for next iteration (faster incremental moves)
+        self.previous_solution = joint_angles.copy()
         
         return joint_angles
     
@@ -152,7 +195,7 @@ class ArmIKSolver:
         MUST match arm_3d_visualization.calculate_arm_positions() exactly!
         Uses SAME angle inversions as RViz/send_command():
         - Shoulder and Elbow: INVERTED (90.0 - pos)
-        - Others: Normal (pos - 90.0)
+        - Base, Forearm, Wrist: Normal (pos - 90.0)
         
         Args:
             Joint angles in degrees (GUI convention: 90° = home)
@@ -166,12 +209,13 @@ class ArmIKSolver:
         L_forearm = 0.086    # Elbow to wrist (forearm)
         L_wrist = 0.061      # Wrist to gripper
         
-        # Convert to radians - SAME as arm_3d_visualization.py and RViz
-        # Shoulder and Elbow use INVERTED conversion to match RViz
+        # Convert to radians - matches arm_3d_visualization.py
+        # Shoulder and Elbow use INVERTED conversion
+        # Forearm uses NORMAL for FK calculation (matches hardware)
         base_rad = math.radians(base - 90.0)
-        shoulder_rad = math.radians(90.0 - shoulder)  # INVERTED like RViz
-        elbow_rad = math.radians(90.0 - elbow)        # INVERTED like RViz
-        forearm_rad = math.radians(forearm - 90.0)
+        shoulder_rad = math.radians(90.0 - shoulder)  # INVERTED
+        elbow_rad = math.radians(90.0 - elbow)        # INVERTED
+        forearm_rad = math.radians(forearm - 90.0)    # NORMAL (hardware convention)
         wrist_rad = math.radians(wrist - 90.0)
         
         # Calculate positions using SAME math as arm_3d_visualization.py

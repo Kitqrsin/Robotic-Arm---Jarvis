@@ -38,14 +38,15 @@ class Arm3DVisualization:
         # View parameters
         self.view_azimuth = 45  # Degrees around vertical axis
         self.view_elevation = 25  # Degrees above horizontal
-        self.zoom = 800  # Pixels per meter
+        self.zoom = 650  # Pixels per meter (reduced from 800 for larger workspace)
         self.center_offset_x = self.canvas_width // 2
         self.center_offset_y = self.canvas_height - 50
         
         # Target position (meters)
-        self.target_x = 0.2
+        # Increased for 5-joint arm with extended reach
+        self.target_x = 0.25
         self.target_y = 0.0
-        self.target_z = 0.15
+        self.target_z = 0.22
         
         # Current joint angles (degrees)
         self.joint_angles = [90.0] * 6
@@ -285,9 +286,10 @@ class Arm3DVisualization:
     def draw_workspace(self):
         """Draw approximate reachable workspace boundary"""
         # Draw a few circles at different heights to show workspace
-        max_reach = self.L2 + self.L3 + self.L4
+        # Increased by 1.5x to accommodate new 5th joint
+        max_reach = (self.L2 + self.L3 + self.L4) * 1.5
         
-        for z in [0.05, 0.15, 0.25]:
+        for z in [0.05, 0.15, 0.25, 0.35]:
             # Calculate radius at this height
             z_from_shoulder = z - self.L1
             if abs(z_from_shoulder) < max_reach:
@@ -379,8 +381,10 @@ class Arm3DVisualization:
         # Elbow: INVERTED to match RViz (90.0 - pos)
         elbow_rad = math.radians(90.0 - elbow)
         
-        # Forearm/Wrist pitch - normal conversion
-        forearm_rad = math.radians(forearm - 90.0)
+        # Forearm/Wrist pitch - INVERTED for display to match RViz
+        # Hardware uses normal convention, but RViz display inverts it
+        # So Tkinter must also invert for visual consistency
+        forearm_rad = -math.radians(forearm - 90.0)
         
         # Link lengths from URDF joint origin xyz values (in meters)
         # Measured from robot_fixed.urdf joint definitions:
@@ -473,8 +477,16 @@ class Arm3DVisualization:
         )
     
     def draw_gripper_marker(self):
-        """Draw the current gripper position (green ball) - uses actual FK position from TF"""
-        # Use the actual gripper position from FK/TF, not calculated geometry
+        """Draw the current gripper position (green ball) - at the 5th joint (gripper base)"""
+        # Get the 5th joint position directly from calculated arm positions
+        # This ensures the green dot is exactly on the last joint
+        positions = self.calculate_arm_positions()
+        if len(positions) >= 5:
+            gripper_pos = positions[4]  # 5th joint (index 4)
+            self.actual_gripper_x = gripper_pos[0]
+            self.actual_gripper_y = gripper_pos[1]
+            self.actual_gripper_z = gripper_pos[2]
+        
         gx, gy = self.project_3d_to_2d(self.actual_gripper_x, self.actual_gripper_y, self.actual_gripper_z)
         
         # Draw gripper marker (green, slightly smaller)

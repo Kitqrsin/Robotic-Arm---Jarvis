@@ -371,10 +371,11 @@ class ArmControlGUI(Node):
         self.cartesian_labels = {}
         
         # Define ranges for each axis (in millimeters)
+        # Increased by 1.5x for 5-joint arm with extended reach
         cartesian_ranges = {
-            'X': (-300, 300),
-            'Y': (-300, 300),
-            'Z': (0, 400)
+            'X': (-450, 450),
+            'Y': (-450, 450),
+            'Z': (0, 600)
         }
         
         for axis in ['X', 'Y', 'Z']:
@@ -605,7 +606,7 @@ class ArmControlGUI(Node):
         # Fall back to custom solver
         if joint_angles is None:
             self.get_logger().debug("Using custom geometric IK solver...")
-            joint_angles = self.custom_ik_solver.solve_ik(x, y, z, pitch, roll, gripper_angle)
+            joint_angles = self.custom_ik_solver.solve_ik(x, y, z, pitch, roll, gripper_angle, seed_state)
             if joint_angles:
                 self.get_logger().info("Using custom geometric IK (MoveIt unavailable)")
         
@@ -658,8 +659,27 @@ class ArmControlGUI(Node):
         self.cartesian_labels['Y'].config(text=f"{int(y_mm)} mm")
         self.cartesian_labels['Z'].config(text=f"{int(z_mm)} mm")
         
-        # Solve IK for target position
-        joint_angles = self.solve_ik(x, y, z, pitch=0, roll=0)
+        # Calculate the pitch angle that will make the gripper reach the target
+        # pitch is the angle from vertical (0=up, pi/2=horizontal, pi=down)
+        # We want the gripper to point FROM the shoulder TOWARD the target
+        r_xy = math.sqrt(x**2 + y**2)
+        L_base = 0.059  # Base height
+        z_above_shoulder = z - L_base
+        
+        # Calculate pitch from vertical axis toward target
+        # atan2(horizontal, vertical) gives angle from vertical
+        # For targets below shoulder (negative z_above_shoulder), this correctly
+        # gives angles > 90 degrees (pointing downward)
+        if r_xy > 0.001 or abs(z_above_shoulder) > 0.001:
+            desired_pitch = math.atan2(r_xy, z_above_shoulder)
+            # Clamp pitch to reasonable range (0 to ~150 degrees)
+            # Avoid extreme angles that would be mechanically impossible
+            desired_pitch = max(0, min(math.radians(150), desired_pitch))
+        else:
+            desired_pitch = 0  # Default to pointing up if target is at origin
+        
+        # Solve IK with the calculated pitch so gripper reaches target
+        joint_angles = self.solve_ik(x, y, z, pitch=desired_pitch, roll=0)
         
         if joint_angles is None:
             self.info_label.config(
@@ -679,40 +699,13 @@ class ArmControlGUI(Node):
         }
         
         # Store target angles for smooth interpolation
+        # Use the IK solution directly - it already calculates the correct
+        # forearm angle to make the gripper reach the target
         target_angles = [0.0] * 6
         for ik_joint, gui_idx in ik_to_gui_mapping.items():
             angle = joint_angles[ik_joint]
             angle = max(0, min(180, angle))
             target_angles[gui_idx] = angle
-        
-        # Calculate gripper position with IK solution to get pointing angle
-        # Use forward kinematics to find where gripper will be
-        fk_x, fk_y, fk_z, _, _ = self.forward_kinematics(
-            target_angles[0], target_angles[1], target_angles[2], 
-            target_angles[3], target_angles[4]
-        )
-        
-        # Calculate angle from gripper to target for wrist orientation
-        dx = x - fk_x
-        dy = y - fk_y
-        dz = z - fk_z
-        
-        # Calculate pitch angle (vertical pointing)
-        horizontal_dist = math.sqrt(dx**2 + dy**2)
-        pitch_to_target = math.degrees(math.atan2(dz, horizontal_dist))
-        
-        # Adjust wrist angle to point at target
-        # The wrist angle controls pitch relative to the arm orientation
-        # We need to calculate the arm's current pitch and adjust accordingly
-        shoulder_angle = target_angles[1]
-        elbow_angle = target_angles[2]
-        
-        # Arm pitch is combination of shoulder and elbow
-        arm_pitch = (shoulder_angle - 90.0) + (elbow_angle - 90.0)
-        
-        # Set wrist to make gripper point at target
-        wrist_adjustment = pitch_to_target - arm_pitch
-        target_angles[3] = max(0, min(180, 90.0 + wrist_adjustment))
         
         # Publish target marker for RViz
         self.publish_target_marker(x, y, z)
@@ -861,7 +854,7 @@ class ArmControlGUI(Node):
             # - base: normal (positive = counter-clockwise when viewed from above)
             # - shoulder: inverted (positive in GUI = negative in URDF to lift arm up)
             # - elbow: inverted (positive in GUI = negative in URDF to bend arm)
-            # - wrist: normal
+            # - wrist (forearm): NEGATED to match hardware direction
             # - wrist_rotate: normal
             # - gripper_base: normal (controls gripper fingers)
             rviz_positions = []
@@ -870,6 +863,8 @@ class ArmControlGUI(Node):
                     rviz_positions.append(float(math.radians(90.0 - pos)))
                 elif i == 2:  # Elbow joint - invert for correct bend direction
                     rviz_positions.append(float(math.radians(90.0 - pos)))
+                elif i == 3:  # Wrist (forearm pitch) - normal with negation to match hardware
+                    rviz_positions.append(float(-math.radians(pos - 90.0)))
                 else:
                     # Normal conversion: 90° GUI = 0 rad RViz
                     rviz_positions.append(float(math.radians(pos - 90.0)))
@@ -950,8 +945,19 @@ class ArmControlGUI(Node):
                 )
                 self.root.update()
             
-            # Solve IK using MoveIt or fallback (pitch=0 for horizontal gripper, roll=0)
-            joint_angles = self.solve_ik(x_m, y_m, z_m, pitch=0, roll=0)
+            # Calculate the pitch angle that will make the gripper reach the target
+            # pitch=0 means pointing up, pitch=pi/2 means pointing horizontal
+            r_xy = math.sqrt(x_m**2 + y_m**2)
+            L_base = 0.059  # Base height
+            z_above_shoulder = z_m - L_base
+            
+            if r_xy > 0.001 or abs(z_above_shoulder) > 0.001:
+                desired_pitch = math.atan2(r_xy, z_above_shoulder)
+            else:
+                desired_pitch = 0
+            
+            # Solve IK with calculated pitch so gripper (5th joint) reaches target
+            joint_angles = self.solve_ik(x_m, y_m, z_m, pitch=desired_pitch, roll=0)
             
             if joint_angles is None:
                 if show_feedback:
@@ -1036,6 +1042,19 @@ class ArmControlGUI(Node):
     
     def publish_target_marker(self, x, y, z):
         """Publish a visualization marker at the target position in RViz"""
+        # The URDF base joint has an initial rotation of 2.23697 rad (~128°) around Z
+        # We need to rotate our coordinates to match the URDF frame
+        # Note: The URDF also has an XY offset of (0.0284, -0.00137) which we ignore for now
+        import math as m
+        urdf_base_yaw = 2.23697  # From URDF base joint rpy
+        
+        # Rotate coordinates by -urdf_base_yaw to align with URDF frame
+        cos_yaw = m.cos(-urdf_base_yaw)
+        sin_yaw = m.sin(-urdf_base_yaw)
+        x_rviz = x * cos_yaw - y * sin_yaw
+        y_rviz = x * sin_yaw + y * cos_yaw
+        z_rviz = z
+        
         marker = Marker()
         marker.header.frame_id = "base_link"
         marker.header.stamp = self.get_clock().now().to_msg()
@@ -1044,10 +1063,10 @@ class ArmControlGUI(Node):
         marker.type = Marker.SPHERE
         marker.action = Marker.ADD
         
-        # Position (in meters)
-        marker.pose.position.x = x
-        marker.pose.position.y = y
-        marker.pose.position.z = z
+        # Position (in meters) - rotated to match URDF frame
+        marker.pose.position.x = x_rviz
+        marker.pose.position.y = y_rviz
+        marker.pose.position.z = z_rviz
         marker.pose.orientation.w = 1.0
         
         # Scale (sphere diameter in meters)
@@ -1090,6 +1109,16 @@ class ArmControlGUI(Node):
             # Set the actual gripper position from FK/TF for accurate green marker
             self.viz_3d.set_actual_gripper_position(x, y, z)
         
+        # The URDF base joint has an initial rotation of 2.23697 rad (~128°) around Z
+        # Rotate coordinates to match the URDF frame
+        import math as m
+        urdf_base_yaw = 2.23697
+        cos_yaw = m.cos(-urdf_base_yaw)
+        sin_yaw = m.sin(-urdf_base_yaw)
+        x_rviz = x * cos_yaw - y * sin_yaw
+        y_rviz = x * sin_yaw + y * cos_yaw
+        z_rviz = z
+        
         marker = Marker()
         marker.header.frame_id = "base_link"
         marker.header.stamp = self.get_clock().now().to_msg()
@@ -1098,10 +1127,10 @@ class ArmControlGUI(Node):
         marker.type = Marker.SPHERE
         marker.action = Marker.ADD
         
-        # Position (in meters)
-        marker.pose.position.x = x
-        marker.pose.position.y = y
-        marker.pose.position.z = z
+        # Position (in meters) - rotated to match URDF frame
+        marker.pose.position.x = x_rviz
+        marker.pose.position.y = y_rviz
+        marker.pose.position.z = z_rviz
         marker.pose.orientation.w = 1.0
         
         # Scale (sphere diameter in meters)
