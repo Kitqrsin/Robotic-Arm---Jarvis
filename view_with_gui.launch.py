@@ -51,12 +51,26 @@ def generate_launch_description():
             arguments=['-d', '/workspace/robot.rviz']
         ),
         
-        # Arm GUI Controller with 3D visualization
+        # Arm GUI Controller with 3D visualization and camera feed
         Node(
             package='arm_controller',
             executable='arm_gui',
             name='arm_gui_controller',
             output='screen'
+        ),
+        
+        # Camera Node - publishes /camera/image_raw for GUI camera feed
+        Node(
+            package='arm_controller',
+            executable='camera_node',
+            name='camera_node',
+            output='screen',
+            parameters=[{
+                'frame_rate': 15.0,
+                'width': 640,
+                'height': 480,
+                'camera_backend': 'auto',
+            }]
         )
     ]
     

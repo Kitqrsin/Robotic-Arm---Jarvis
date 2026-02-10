@@ -12,8 +12,10 @@ services:
       - .:/workspace
       - /dev:/dev
       - /tmp/.X11-unix:/tmp/.X11-unix
+      - /run/udev:/run/udev:ro
     environment:
       - DISPLAY=${DISPLAY}
+      - LIBCAMERA_LOG_LEVELS=*:WARNING
     working_dir: /workspace
     stdin_open: true
     tty: true

@@ -1608,6 +1608,6 @@
     <parent link="base_link"/>
     <child link="shoulder_link"/>
     <axis xyz="0 0 1"/>
-    <limit effort="10" velocity="10" lower="-3.141592653589793" upper="3.141592653589793"/>
+    <limit effort="10" velocity="10" lower="0" upper="4.27605669661414"/>
   </joint>
 </robot>

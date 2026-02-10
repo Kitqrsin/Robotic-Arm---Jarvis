@@ -11,3 +11,8 @@ __pycache__/
 *.pyc
 *.pyo
 *.egg-info/
+
+# Camera stream shared frame
+.camera_frame.jpg
+.camera_frame.jpg.tmp
+.cam_frames/

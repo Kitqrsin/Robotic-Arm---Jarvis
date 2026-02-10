@@ -7,8 +7,10 @@ Provides a web-based UI to control servos and save/load poses
 import atexit
 import json
 import os
+import shutil
 import signal
 import sqlite3
+import subprocess
 import sys
 import threading
 import time
@@ -20,6 +22,7 @@ from adafruit_pca9685 import PCA9685
 from board import SCL, SDA
 from flask import (
     Flask,
+    Response,
     flash,
     jsonify,
     redirect,
@@ -31,6 +34,13 @@ from flask import (
 from flask_cors import CORS
 from gpiozero import OutputDevice
 from werkzeug.security import check_password_hash, generate_password_hash
+
+# Optional: OpenCV for camera streaming (may not be available)
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
 
 # Add parent directory to path to import arm_poses
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
@@ -430,6 +440,194 @@ def index():
     return render_template("index.html", username=session.get("username"))
 
 
+# --- CAMERA STREAM ---
+# Uses rpicam-vid (Pi 5 libcamera) to capture MJPEG frames for web preview.
+# Falls back to OpenCV V4L2 if rpicam-vid is not available.
+_camera_lock = threading.Lock()
+_camera_proc = None       # rpicam-vid subprocess
+_camera_cap = None         # OpenCV fallback
+_camera_backend = None     # 'libcamera' or 'opencv'
+
+
+def _init_camera_stream():
+    """Start the camera capture process (called once, lazily)."""
+    global _camera_proc, _camera_cap, _camera_backend
+
+    # --- Try libcamera (rpicam-vid) first — required on Pi 5 ---
+    vid_cmd = shutil.which('rpicam-vid') or shutil.which('libcamera-vid')
+    if vid_cmd:
+        try:
+            pipeline = [
+                vid_cmd,
+                '--width', '640', '--height', '480',
+                '--framerate', '15',
+                '--codec', 'mjpeg',
+                '--nopreview',
+                '-t', '0',       # run forever
+                '-o', '-',       # output to stdout
+            ]
+            _camera_proc = subprocess.Popen(
+                pipeline,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                bufsize=640 * 480 * 3
+            )
+            time.sleep(0.5)
+            if _camera_proc.poll() is None:
+                _camera_backend = 'libcamera'
+                print(f'[CAMERA] Using libcamera backend ({vid_cmd})')
+                return True
+            else:
+                print(f'[CAMERA] rpicam-vid exited with code {_camera_proc.returncode}')
+                _camera_proc = None
+        except Exception as e:
+            print(f'[CAMERA] libcamera failed: {e}')
+            _camera_proc = None
+
+    # --- Fallback: OpenCV V4L2 ---
+    if CV2_AVAILABLE:
+        for dev_id in range(36):
+            if not os.path.exists(f'/dev/video{dev_id}'):
+                continue
+            try:
+                cap = cv2.VideoCapture(dev_id, cv2.CAP_V4L2)
+                if cap.isOpened():
+                    ret, frame = cap.read()
+                    if ret and frame is not None:
+                        _camera_cap = cap
+                        _camera_backend = 'opencv'
+                        print(f'[CAMERA] Using OpenCV backend (/dev/video{dev_id})')
+                        return True
+                cap.release()
+            except Exception:
+                continue
+
+    print('[CAMERA] No camera backend available')
+    return False
+
+
+def _read_mjpeg_frame_from_pipe():
+    """Read one JPEG frame from the rpicam-vid MJPEG stdout pipe."""
+    global _camera_proc
+    if _camera_proc is None or _camera_proc.poll() is not None:
+        return None
+
+    buf = b''
+    try:
+        # Read until we have a complete JPEG (SOI 0xFFD8 ... EOI 0xFFD9)
+        while True:
+            chunk = _camera_proc.stdout.read(4096)
+            if not chunk:
+                return None
+            buf += chunk
+            soi = buf.find(b'\xff\xd8')
+            if soi == -1:
+                buf = buf[-2:]   # keep tail for split marker
+                continue
+            eoi = buf.find(b'\xff\xd9', soi + 2)
+            if eoi != -1:
+                return buf[soi:eoi + 2]
+            # Need more data for the end marker — cap buffer size
+            if len(buf) > 2 * 1024 * 1024:
+                buf = buf[-4096:]
+    except Exception:
+        return None
+
+
+def _generate_mjpeg():
+    """Generator that yields MJPEG frames for the video stream."""
+    global _camera_proc, _camera_cap, _camera_backend
+    import numpy as _np
+
+    # Lazy-init on first request
+    with _camera_lock:
+        if _camera_backend is None:
+            _init_camera_stream()
+
+    while True:
+        # --- libcamera pipe ---
+        if _camera_backend == 'libcamera' and _camera_proc is not None:
+            jpeg_bytes = _read_mjpeg_frame_from_pipe()
+            if jpeg_bytes:
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + jpeg_bytes + b'\r\n')
+                time.sleep(1.0 / 15)
+                continue
+
+        # --- OpenCV fallback ---
+        elif _camera_backend == 'opencv' and _camera_cap is not None:
+            ret, frame = _camera_cap.read()
+            if ret:
+                _, jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
+                time.sleep(1.0 / 15)
+                continue
+
+        # --- No camera: placeholder ---
+        placeholder = _make_no_camera_frame()
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + placeholder + b'\r\n')
+        time.sleep(2.0)
+
+
+def _make_no_camera_frame():
+    """Create a placeholder JPEG with 'No Camera' text."""
+    if CV2_AVAILABLE:
+        import numpy as _np
+        img = _np.zeros((240, 320, 3), dtype=_np.uint8)
+        cv2.putText(img, 'No Camera', (60, 130),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
+        cv2.putText(img, 'Check connection', (50, 170),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (128, 128, 128), 1)
+        _, jpeg = cv2.imencode('.jpg', img)
+        return jpeg.tobytes()
+    # Fallback: use Pillow if available
+    try:
+        from PIL import Image as PILImage, ImageDraw, ImageFont
+        import io
+        img = PILImage.new('RGB', (320, 240), color=(0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        draw.text((80, 110), 'No Camera', fill=(255, 255, 255))
+        draw.text((70, 140), 'Check connection', fill=(128, 128, 128))
+        buf = io.BytesIO()
+        img.save(buf, format='JPEG')
+        return buf.getvalue()
+    except ImportError:
+        pass
+    # Absolute last resort: empty bytes (will trigger onerror in <img>)
+    return b''
+
+
+@app.route("/video_feed")
+@login_required
+def video_feed():
+    """MJPEG stream of the camera — embed with <img src="/video_feed">"""
+    return Response(
+        _generate_mjpeg(),
+        mimetype='multipart/x-mixed-replace; boundary=frame'
+    )
+
+
+@app.route("/camera")
+@login_required
+def camera_page():
+    """Standalone camera preview page."""
+    return '''<!DOCTYPE html>
+<html><head><title>Camera Preview</title>
+<style>
+  body { background: #1a1a2e; color: white; font-family: Arial; text-align: center; margin: 20px; }
+  img { max-width: 100%; border: 2px solid #444; border-radius: 8px; }
+  h2 { color: #0f0; }
+  a { color: #4af; }
+</style></head>
+<body>
+  <h2>📷 Camera Preview</h2>
+  <img src="/video_feed" alt="Camera Stream" />
+  <p><a href="/">← Back to Arm Control</a></p>
+</body></html>'''
+
+
 @app.route("/api/servo/<int:servo_id>", methods=["POST"])
 @login_required
 def set_servo(servo_id):
@@ -438,8 +636,9 @@ def set_servo(servo_id):
         data = request.get_json()
         angle = int(data.get("angle", 90))
 
-        # Clamp angle
-        angle = max(0, min(180, angle))
+        # Clamp angle - Base (servo 1) allows up to 245°, others up to 180°
+        max_angle = 245 if servo_id == 1 else 180
+        angle = max(0, min(max_angle, angle))
 
         # Map web UI servo ID to internal servo name
         servo_name = SERVO_MAPPING.get(servo_id)
@@ -472,7 +671,9 @@ def set_servos_batch():
         with arm_lock:
             for servo_id, angle in servos.items():
                 servo_id = int(servo_id)
-                angle = max(0, min(180, int(angle)))
+                # Base (servo 1) allows up to 245°, others up to 180°
+                max_angle = 245 if servo_id == 1 else 180
+                angle = max(0, min(max_angle, int(angle)))
 
                 servo_name = SERVO_MAPPING.get(servo_id)
                 if servo_name and servo_name in arm:
@@ -734,11 +935,24 @@ def get_initial_positions():
 
 # --- CLEANUP ---
 def cleanup():
-    """Cleanup GPIO and servos on shutdown"""
+    """Cleanup GPIO, servos, and camera on shutdown"""
     print("\n[SHUTDOWN] Cleaning up...")
     try:
         # Save current position before shutting down
         save_current_position()
+
+        # Stop camera subprocess if running
+        global _camera_proc, _camera_cap
+        if _camera_proc is not None:
+            try:
+                _camera_proc.terminate()
+                _camera_proc.wait(timeout=3)
+            except Exception:
+                _camera_proc.kill()
+            _camera_proc = None
+        if _camera_cap is not None:
+            _camera_cap.release()
+            _camera_cap = None
 
         if pca is not None:
             for i in range(16):

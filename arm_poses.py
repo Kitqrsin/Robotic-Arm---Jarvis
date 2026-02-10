@@ -30,7 +30,7 @@ def rad_to_deg(rad):
 
 # URDF Joint Limits (in radians)
 JOINT_LIMITS = {
-    "joint2": {"min": -1.57, "max": 1.57},  # Base rotation (Z-axis)
+    "joint2": {"min": 0, "max": 4.276},     # Base rotation (Z-axis) - 245 degrees (safety limit)
     "joint3": {"min": -1.57, "max": 1.57},  # Shoulder pitch (X-axis)
     "joint4": {"min": -1.57, "max": 1.57},  # Elbow pitch (X-axis)
     "joint5": {"min": -1.57, "max": 1.57},  # Wrist pitch (X-axis)

@@ -8,13 +8,33 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import threading
 import math
+import subprocess
+import shutil
+import os
+import time
 
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import JointState
+from sensor_msgs.msg import JointState, Image as ROSImage
 from std_msgs.msg import Float32MultiArray, Float32, Bool
 from visualization_msgs.msg import Marker
 from builtin_interfaces.msg import Duration
+
+import numpy as np
+
+# Try to import Pillow for camera display
+try:
+    from PIL import Image as PILImage, ImageTk, ImageDraw, ImageFont
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+
+# Try to import OpenCV for direct camera fallback
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
 
 # Import IK solvers and 3D visualization
 from arm_controller.ik_solver import ArmIKSolver
@@ -35,7 +55,7 @@ class ArmControlGUI(Node):
         
         self.root = root
         self.root.title("Jarvis Robot Arm Controller")
-        self.root.geometry("1200x800")
+        self.root.geometry("1400x900")
         self.root.configure(bg='#2b2b2b')
         
         # Joint names matching your OnShape URDF
@@ -81,6 +101,25 @@ class ArmControlGUI(Node):
         
         # 3D visualization (will be set up in setup_gui)
         self.viz_3d = None
+        
+        # Camera feed state
+        self.camera_enabled = tk.BooleanVar(value=True)
+        self.camera_label = None          # Tkinter Label widget for video feed
+        self.camera_photo = None          # Current PhotoImage (must keep reference)
+        self.latest_camera_frame = None   # Latest numpy RGB frame (set from any source)
+        self._camera_lock = threading.Lock()
+        self._direct_cam_cap = None       # OpenCV VideoCapture (direct fallback)
+        self._direct_cam_proc = None      # rpicam-vid subprocess (direct fallback)
+        self._direct_cam_backend = None   # 'ros2', 'libcamera', 'opencv', or None
+        self._camera_frame_count = 0
+        self._camera_snapshot_count = 0
+        self.camera_status_label = None
+        self.camera_fps_label = None
+        self._cam_fps_time = time.time()
+        self._cam_fps_count = 0
+        
+        # Auto-follow mode: arm tracks 3D target in real-time
+        self.auto_follow_active = tk.BooleanVar(value=False)
         
         # Real-time mode flag and update control
         self.realtime_mode = tk.BooleanVar(value=False)
@@ -137,6 +176,16 @@ class ArmControlGUI(Node):
             '/emergency_stop',
             10
         )
+        
+        # Subscriber for camera feed from camera_node
+        self.camera_sub = self.create_subscription(
+            ROSImage,
+            '/camera/image_raw',
+            self.camera_image_callback,
+            10
+        )
+        self._ros2_camera_active = False
+        self._ros2_camera_last_time = 0.0
         
         # Track emergency stop state
         self.estop_active = False
@@ -231,11 +280,14 @@ class ArmControlGUI(Node):
             value_label.pack(side=tk.LEFT, padx=5)
             self.joint_labels.append(value_label)
             
+            # Base (J1) is limited to 245° for safety (mechanical max ~270°)
+            slider_max = 245 if i == 0 else 180
+            
             # Slider
             slider = tk.Scale(
                 joint_frame,
                 from_=0,
-                to=180,
+                to=slider_max,
                 orient=tk.HORIZONTAL,
                 resolution=1,
                 bg='#3b3b3b',
@@ -463,6 +515,22 @@ class ArmControlGUI(Node):
         # Sync initial cartesian values to 3D viz
         self.viz_3d.set_target(0.0, 0.0, 0.2)
         
+        # ---- Start / Stop Cartesian Auto-Follow Button ----
+        self.start_stop_btn = tk.Button(
+            right_panel,
+            text="▶  Start",
+            font=('Arial', 13, 'bold'),
+            bg='#006600',
+            fg='white',
+            activebackground='#008800',
+            command=self.toggle_auto_follow,
+            height=1
+        )
+        self.start_stop_btn.pack(fill=tk.X, pady=5)
+        
+        # ---- Camera Feed Panel ----
+        self._setup_camera_panel(right_panel)
+        
         # Control Buttons
         button_frame = tk.LabelFrame(
             right_panel,
@@ -514,6 +582,466 @@ class ArmControlGUI(Node):
         )
         self.info_label.pack(fill=tk.X)
     
+    # ------------------------------------------------------------------ #
+    #  Camera Feed                                                         #
+    # ------------------------------------------------------------------ #
+    def _setup_camera_panel(self, parent):
+        """Create the camera feed panel with controls."""
+        cam_frame = tk.LabelFrame(
+            parent,
+            text="📷 Camera Feed",
+            font=('Arial', 12, 'bold'),
+            bg='#3b3b3b',
+            fg='white',
+            bd=2
+        )
+        cam_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+
+        # -- Controls row --
+        ctrl_row = tk.Frame(cam_frame, bg='#3b3b3b')
+        ctrl_row.pack(fill=tk.X, padx=5, pady=(5, 2))
+
+        toggle_btn = tk.Checkbutton(
+            ctrl_row,
+            text="Enable",
+            variable=self.camera_enabled,
+            font=('Arial', 9),
+            bg='#3b3b3b',
+            fg='#00ff00',
+            selectcolor='#555555',
+            activebackground='#3b3b3b',
+            command=self._on_camera_toggle
+        )
+        toggle_btn.pack(side=tk.LEFT)
+
+        snap_btn = tk.Button(
+            ctrl_row,
+            text="📸 Snapshot",
+            font=('Arial', 9),
+            bg='#4a4a4a',
+            fg='white',
+            activebackground='#5a5a5a',
+            command=self._camera_snapshot
+        )
+        snap_btn.pack(side=tk.LEFT, padx=5)
+
+        self.camera_fps_label = tk.Label(
+            ctrl_row,
+            text="FPS: --",
+            font=('Arial', 9),
+            bg='#3b3b3b',
+            fg='#aaaaaa'
+        )
+        self.camera_fps_label.pack(side=tk.RIGHT, padx=5)
+
+        self.camera_status_label = tk.Label(
+            ctrl_row,
+            text="⏳ Connecting...",
+            font=('Arial', 9),
+            bg='#3b3b3b',
+            fg='#ffaa00'
+        )
+        self.camera_status_label.pack(side=tk.RIGHT, padx=5)
+
+        # -- Video display (fixed 320x240 pixel area) --
+        cam_display = tk.Frame(cam_frame, bg='#1a1a1a', width=320, height=240)
+        cam_display.pack(padx=5, pady=5)
+        cam_display.pack_propagate(False)
+
+        self.camera_label = tk.Label(
+            cam_display,
+            bg='#1a1a1a',
+            text="No Camera Feed",
+            fg='#555555',
+            font=('Arial', 12)
+        )
+        self.camera_label.pack(fill=tk.BOTH, expand=True)
+
+        if not PIL_AVAILABLE:
+            self.get_logger().warn(
+                'Pillow (PIL) not installed — camera images disabled. '
+                'Install with: pip3 install Pillow'
+            )
+            self.camera_label.configure(
+                text="Install Pillow:\npip3 install Pillow",
+                fg='#ff6666',
+                font=('Arial', 10, 'bold')
+            )
+            if self.camera_status_label:
+                self.camera_status_label.config(
+                    text="⚠ No Pillow", fg='#ff6666'
+                )
+            return
+
+        # Show an initial placeholder
+        self._show_camera_placeholder("Waiting for camera...")
+
+        # Start the camera refresh loop (runs on Tkinter main thread)
+        self._start_camera_refresh()
+
+        # Kick off the direct-camera fallback probe in a background thread
+        threading.Thread(target=self._init_direct_camera, daemon=True).start()
+
+    # ---- ROS2 camera topic callback (runs in ROS spin thread) ----
+    def camera_image_callback(self, msg: ROSImage):
+        """Receive frames from /camera/image_raw published by camera_node."""
+        if not self.camera_enabled.get():
+            return
+        try:
+            # Convert ROS Image to numpy array
+            if msg.encoding in ('rgb8', 'RGB8'):
+                frame = np.frombuffer(msg.data, dtype=np.uint8).reshape(
+                    msg.height, msg.width, 3
+                )
+            elif msg.encoding in ('bgr8', 'BGR8'):
+                raw = np.frombuffer(msg.data, dtype=np.uint8).reshape(
+                    msg.height, msg.width, 3
+                )
+                frame = raw[:, :, ::-1]  # BGR → RGB
+            elif msg.encoding in ('mono8',):
+                gray = np.frombuffer(msg.data, dtype=np.uint8).reshape(
+                    msg.height, msg.width
+                )
+                frame = np.stack([gray] * 3, axis=-1)
+            else:
+                self.get_logger().warn(
+                    f'Unsupported image encoding: {msg.encoding}', throttle_duration_sec=5.0
+                )
+                return
+
+            with self._camera_lock:
+                self.latest_camera_frame = frame
+                self._ros2_camera_active = True
+                self._ros2_camera_last_time = time.time()
+        except Exception as e:
+            self.get_logger().error(f'Camera frame decode error: {e}')
+
+    # ---- Direct camera fallback (like app.py) ----
+    # Camera frame file written by host-side camera_stream.sh
+    CAMERA_FRAME_FILE = '/workspace/.camera_frame.jpg'
+
+    def _init_direct_camera(self):
+        """Try to open a camera directly. Priority:
+        1. Shared JPEG file (/tmp/jarvis_camera_frame.jpg from camera_stream.sh)
+        2. Local rpicam-vid pipe (if binary available inside container)
+        3. OpenCV V4L2
+        """
+        # Wait a moment to see if ROS2 camera topic is active
+        time.sleep(3.0)
+        if self._ros2_camera_active:
+            self.get_logger().info('[CAM-GUI] Using ROS2 /camera/image_raw topic')
+            return
+
+        self.get_logger().info('[CAM-GUI] No ROS2 camera topic — trying direct capture...')
+
+        # --- 1. Shared JPEG file (host camera_stream.sh writes here) ---
+        if os.path.isfile(self.CAMERA_FRAME_FILE):
+            self._direct_cam_backend = 'shared-file'
+            self.get_logger().info(
+                f'[CAM-GUI] Using shared camera frame file: {self.CAMERA_FRAME_FILE}'
+            )
+            threading.Thread(target=self._shared_file_loop, daemon=True).start()
+            return
+
+        # --- 2. Try local rpicam-vid pipe (if binary is available) ---
+        vid_cmd = shutil.which('rpicam-vid') or shutil.which('libcamera-vid')
+        if vid_cmd:
+            try:
+                pipeline = [
+                    vid_cmd,
+                    '--width', '320', '--height', '240',
+                    '--framerate', '10',
+                    '--codec', 'mjpeg',
+                    '--nopreview',
+                    '-t', '0',
+                    '-o', '-',
+                ]
+                self._direct_cam_proc = subprocess.Popen(
+                    pipeline,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    bufsize=320 * 240 * 3
+                )
+                time.sleep(0.8)
+                if self._direct_cam_proc.poll() is None:
+                    self._direct_cam_backend = 'libcamera'
+                    self.get_logger().info(f'[CAM-GUI] Direct camera: libcamera ({vid_cmd})')
+                    threading.Thread(target=self._direct_libcam_loop, daemon=True).start()
+                    return
+                else:
+                    self._direct_cam_proc = None
+            except Exception as e:
+                self.get_logger().warn(f'[CAM-GUI] libcamera pipe failed: {e}')
+                self._direct_cam_proc = None
+
+        # --- 3. Try OpenCV V4L2 ---
+        if CV2_AVAILABLE:
+            for dev_id in range(36):
+                if not os.path.exists(f'/dev/video{dev_id}'):
+                    continue
+                try:
+                    cap = cv2.VideoCapture(dev_id, cv2.CAP_V4L2)
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+                    if cap.isOpened():
+                        ret, frame = cap.read()
+                        if ret and frame is not None:
+                            self._direct_cam_cap = cap
+                            self._direct_cam_backend = 'opencv'
+                            self.get_logger().info(
+                                f'[CAM-GUI] Direct camera: OpenCV /dev/video{dev_id}'
+                            )
+                            threading.Thread(target=self._direct_opencv_loop, daemon=True).start()
+                            return
+                    cap.release()
+                except Exception:
+                    continue
+
+        # --- 4. Wait for shared file to appear (camera_stream.sh may start later) ---
+        self.get_logger().warn(
+            '[CAM-GUI] No camera found yet. Waiting for shared frame file...\n'
+            '  Run on HOST: ./camera_stream.sh start'
+        )
+        self._direct_cam_backend = 'waiting'
+        threading.Thread(target=self._wait_for_shared_file, daemon=True).start()
+
+    def _wait_for_shared_file(self):
+        """Poll for the shared frame file to appear (camera_stream.sh started later)."""
+        while not self._ros2_camera_active:
+            if os.path.isfile(self.CAMERA_FRAME_FILE):
+                self._direct_cam_backend = 'shared-file'
+                self.get_logger().info(
+                    f'[CAM-GUI] Shared camera frame file appeared: {self.CAMERA_FRAME_FILE}'
+                )
+                self._shared_file_loop()
+                return
+            time.sleep(2.0)
+
+    def _shared_file_loop(self):
+        """Background thread: read the latest JPEG frame from the shared file."""
+        last_mtime = 0.0
+        while True:
+            if not self.camera_enabled.get() or self._ros2_camera_active:
+                time.sleep(0.5)
+                continue
+            try:
+                if not os.path.isfile(self.CAMERA_FRAME_FILE):
+                    time.sleep(0.5)
+                    continue
+                mtime = os.path.getmtime(self.CAMERA_FRAME_FILE)
+                if mtime == last_mtime:
+                    time.sleep(0.03)  # ~30 FPS polling
+                    continue
+                last_mtime = mtime
+                with open(self.CAMERA_FRAME_FILE, 'rb') as f:
+                    jpeg_data = f.read()
+                if len(jpeg_data) < 100:
+                    continue
+                # Decode JPEG
+                if CV2_AVAILABLE:
+                    frame = cv2.imdecode(
+                        np.frombuffer(jpeg_data, dtype=np.uint8),
+                        cv2.IMREAD_COLOR
+                    )
+                    if frame is not None:
+                        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        with self._camera_lock:
+                            self.latest_camera_frame = rgb
+                else:
+                    import io
+                    pil_img = PILImage.open(io.BytesIO(jpeg_data))
+                    with self._camera_lock:
+                        self.latest_camera_frame = np.array(pil_img)
+            except Exception:
+                time.sleep(0.1)
+
+    def _direct_libcam_loop(self):
+        """Background thread: read MJPEG frames from rpicam-vid pipe."""
+        buf = b''
+        while self._direct_cam_proc and self._direct_cam_proc.poll() is None:
+            if not self.camera_enabled.get() or self._ros2_camera_active:
+                time.sleep(0.5)
+                continue
+            try:
+                chunk = self._direct_cam_proc.stdout.read(4096)
+                if not chunk:
+                    break
+                buf += chunk
+                soi = buf.find(b'\xff\xd8')
+                if soi == -1:
+                    buf = buf[-2:]
+                    continue
+                eoi = buf.find(b'\xff\xd9', soi + 2)
+                if eoi == -1:
+                    if len(buf) > 2 * 1024 * 1024:
+                        buf = buf[-4096:]
+                    continue
+                jpeg_data = buf[soi:eoi + 2]
+                buf = buf[eoi + 2:]
+                if CV2_AVAILABLE:
+                    frame = cv2.imdecode(
+                        np.frombuffer(jpeg_data, dtype=np.uint8), cv2.IMREAD_COLOR
+                    )
+                    if frame is not None:
+                        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        with self._camera_lock:
+                            self.latest_camera_frame = rgb
+                else:
+                    # Decode with PIL
+                    import io
+                    pil_img = PILImage.open(io.BytesIO(jpeg_data))
+                    with self._camera_lock:
+                        self.latest_camera_frame = np.array(pil_img)
+                time.sleep(1.0 / 10)
+            except Exception:
+                break
+
+    def _direct_opencv_loop(self):
+        """Background thread: read frames from OpenCV V4L2 device."""
+        while self._direct_cam_cap and self._direct_cam_cap.isOpened():
+            if not self.camera_enabled.get() or self._ros2_camera_active:
+                time.sleep(0.5)
+                continue
+            try:
+                ret, bgr = self._direct_cam_cap.read()
+                if ret and bgr is not None:
+                    rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+                    with self._camera_lock:
+                        self.latest_camera_frame = rgb
+                time.sleep(1.0 / 10)
+            except Exception:
+                break
+
+    # ---- Tkinter display refresh (runs on main thread via .after) ----
+    def _start_camera_refresh(self):
+        """Kick off the periodic Tkinter camera frame update."""
+        self._refresh_camera_frame()
+
+    def _refresh_camera_frame(self):
+        """Pull the latest frame and display it in the Tkinter Label."""
+        if self.camera_label is None or not PIL_AVAILABLE:
+            return
+
+        try:
+            if self.camera_enabled.get():
+                frame = None
+                with self._camera_lock:
+                    if self.latest_camera_frame is not None:
+                        frame = self.latest_camera_frame.copy()
+
+                if frame is not None:
+                    # Resize to fit the panel (max 320x240 to keep GUI compact)
+                    pil_img = PILImage.fromarray(frame)
+                    # Scale to fit within 320x240 while maintaining aspect ratio
+                    pil_img.thumbnail((320, 240), PILImage.LANCZOS)
+                    self.camera_photo = ImageTk.PhotoImage(image=pil_img)
+                    self.camera_label.configure(image=self.camera_photo, text='')
+
+                    # FPS counter
+                    self._cam_fps_count += 1
+                    now = time.time()
+                    elapsed = now - self._cam_fps_time
+                    if elapsed >= 1.0:
+                        fps = self._cam_fps_count / elapsed
+                        if self.camera_fps_label:
+                            self.camera_fps_label.config(text=f"FPS: {fps:.1f}")
+                        self._cam_fps_count = 0
+                        self._cam_fps_time = now
+
+                    # Update status
+                    if self._ros2_camera_active:
+                        src = "ROS2 Topic"
+                    elif self._direct_cam_backend:
+                        src = f"Direct ({self._direct_cam_backend})"
+                    else:
+                        src = "Unknown"
+                    if self.camera_status_label:
+                        self.camera_status_label.config(
+                            text=f"● {src}", fg='#00ff00'
+                        )
+                else:
+                    # No frame yet
+                    self._show_camera_placeholder("Waiting for camera...")
+            else:
+                self._show_camera_placeholder("Camera disabled")
+                if self.camera_status_label:
+                    self.camera_status_label.config(text="⏸ Disabled", fg='#888888')
+        except Exception as e:
+            self.get_logger().error(f'Camera display error: {e}')
+
+        # Schedule next refresh (~15 FPS for the display)
+        self.root.after(66, self._refresh_camera_frame)
+
+    def _show_camera_placeholder(self, text="No Camera Feed"):
+        """Show a dark placeholder image with text."""
+        if self.camera_label is None or not PIL_AVAILABLE:
+            return
+        try:
+            img = PILImage.new('RGB', (320, 240), color=(26, 26, 26))
+            draw = ImageDraw.Draw(img)
+            # Simple centered text
+            try:
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
+            except Exception:
+                font = ImageFont.load_default()
+            bbox = draw.textbbox((0, 0), text, font=font)
+            tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            draw.text(((320 - tw) // 2, (240 - th) // 2), text,
+                      fill=(100, 100, 100), font=font)
+            self.camera_photo = ImageTk.PhotoImage(image=img)
+            self.camera_label.configure(image=self.camera_photo, text='')
+        except Exception:
+            self.camera_label.configure(image='', text=text)
+
+    def _on_camera_toggle(self):
+        """Handle camera enable/disable toggle."""
+        if self.camera_enabled.get():
+            self.get_logger().info('[CAM-GUI] Camera enabled')
+            # If no backend was found, retry
+            if not self._ros2_camera_active and not self._direct_cam_backend:
+                threading.Thread(target=self._init_direct_camera, daemon=True).start()
+        else:
+            self.get_logger().info('[CAM-GUI] Camera disabled')
+
+    def _camera_snapshot(self):
+        """Save the current camera frame to a file."""
+        frame = None
+        with self._camera_lock:
+            if self.latest_camera_frame is not None:
+                frame = self.latest_camera_frame.copy()
+        if frame is None:
+            messagebox.showwarning("Snapshot", "No camera frame available.")
+            return
+        self._camera_snapshot_count += 1
+        filename = f'/tmp/jarvis_snapshot_{self._camera_snapshot_count:04d}.png'
+        try:
+            pil_img = PILImage.fromarray(frame)
+            pil_img.save(filename)
+            self.get_logger().info(f'Snapshot saved: {filename}')
+            self.info_label.config(text=f"📸 Snapshot saved: {filename}", fg='#00ff00')
+        except Exception as e:
+            self.get_logger().error(f'Snapshot failed: {e}')
+            messagebox.showerror("Snapshot", f"Failed to save snapshot:\n{e}")
+
+    def _cleanup_camera(self):
+        """Release direct camera resources."""
+        if self._direct_cam_cap is not None:
+            try:
+                self._direct_cam_cap.release()
+            except Exception:
+                pass
+            self._direct_cam_cap = None
+        if self._direct_cam_proc is not None:
+            try:
+                self._direct_cam_proc.terminate()
+                self._direct_cam_proc.wait(timeout=3)
+            except Exception:
+                try:
+                    self._direct_cam_proc.kill()
+                except Exception:
+                    pass
+            self._direct_cam_proc = None
+
     def on_speed_change(self, value):
         """Handle speed slider change"""
         speed = int(float(value))
@@ -612,6 +1140,24 @@ class ArmControlGUI(Node):
         
         return joint_angles
     
+    def solve_ik_to_point(self, x, y, z, gripper_angle=None):
+        """Solve IK so the gripper tip lands on (x, y, z).
+
+        Automatically searches for the best pitch angle.
+        Falls back to the old pitch-guess method if the search fails.
+        """
+        seed_state = {
+            'base': self.target_positions[0],
+            'shoulder': self.target_positions[1],
+            'elbow': self.target_positions[2],
+            'forearm': self.target_positions[3],
+            'wrist': self.target_positions[4],
+        }
+        result = self.custom_ik_solver.solve_ik_to_point(
+            x, y, z, roll=0, gripper_angle=gripper_angle, seed_state=seed_state
+        )
+        return result
+
     def forward_kinematics(self, base, shoulder, elbow, forearm, wrist):
         """
         Calculate end effector position using MoveIt (TF) or custom FK.
@@ -629,11 +1175,85 @@ class ArmControlGUI(Node):
         # Fall back to custom solver
         return self.custom_ik_solver.forward_kinematics(base, shoulder, elbow, forearm, wrist)
     
+    def toggle_auto_follow(self):
+        """Toggle the Start/Stop auto-follow mode for cartesian tracking."""
+        active = not self.auto_follow_active.get()
+        self.auto_follow_active.set(active)
+        
+        if active:
+            # Switch 3D view to isometric
+            if self.viz_3d:
+                self.viz_3d.set_view(45, 25)
+                self.viz_3d.set_auto_follow(True)
+            
+            self.start_stop_btn.config(
+                text="⏹  Stop",
+                bg='#cc0000',
+                activebackground='#ff2222'
+            )
+            self.info_label.config(
+                text="⚡ Auto-follow ACTIVE — drag the target, arm follows in real-time",
+                fg='#ffaa00'
+            )
+            self.get_logger().info('Auto-follow mode STARTED')
+        else:
+            if self.viz_3d:
+                self.viz_3d.set_auto_follow(False)
+            
+            self.start_stop_btn.config(
+                text="▶  Start",
+                bg='#006600',
+                activebackground='#008800'
+            )
+            self.info_label.config(
+                text="Auto-follow stopped. Drag target and press Start to resume.",
+                fg='#aaaaaa'
+            )
+            self.get_logger().info('Auto-follow mode STOPPED')
+
+    # Maximum allowed per-joint change (degrees) in a single cartesian/IK step.
+    # If ANY motor would jump more than this, the pose is rejected to protect
+    # the hardware from sudden, potentially damaging movements.
+    MAX_JOINT_DELTA_DEG = 35.0
+
+    def _check_joint_delta_safe(self, target_angles, label="IK"):
+        """Return True if every joint's change is within MAX_JOINT_DELTA_DEG.
+
+        Args:
+            target_angles: list of 6 target angles (degrees, 0-180)
+            label: short tag for log messages
+
+        Returns:
+            True  – move is safe to execute
+            False – at least one joint exceeds the threshold
+        """
+        for i, target in enumerate(target_angles):
+            # Skip gripper (index 5) — it is independent of arm position
+            # and should never block a cartesian/IK move.
+            if i == 5:
+                continue
+            current = float(self.joint_sliders[i].get())
+            delta = abs(target - current)
+            if delta > self.MAX_JOINT_DELTA_DEG:
+                self.get_logger().warn(
+                    f'[{label}] Joint {i+1} delta {delta:.1f}° exceeds '
+                    f'{self.MAX_JOINT_DELTA_DEG}° limit (cur={current:.1f}° → '
+                    f'tgt={target:.1f}°). Move BLOCKED.'
+                )
+                self.info_label.config(
+                    text=f"⛔ Blocked: Joint {i+1} would jump {delta:.0f}° "
+                         f"(max {self.MAX_JOINT_DELTA_DEG:.0f}°)",
+                    fg='#ff4444'
+                )
+                return False
+        return True
+
     def on_3d_target_move(self, x, y, z):
         """
-        Callback when user clicks 'Move Arm Here' in 3D visualization.
-        Solves IK and moves the arm to the target position with smooth interpolation.
-        Makes the gripper point at the target.
+        Callback when target is dragged in 3D visualization (auto-follow mode)
+        or when cartesian movement is triggered.
+        Solves IK and moves the arm to the target position.
+        In auto-follow mode, uses direct (non-interpolated) movement for speed.
         
         Args:
             x, y, z: Target position in meters
@@ -659,27 +1279,9 @@ class ArmControlGUI(Node):
         self.cartesian_labels['Y'].config(text=f"{int(y_mm)} mm")
         self.cartesian_labels['Z'].config(text=f"{int(z_mm)} mm")
         
-        # Calculate the pitch angle that will make the gripper reach the target
-        # pitch is the angle from vertical (0=up, pi/2=horizontal, pi=down)
-        # We want the gripper to point FROM the shoulder TOWARD the target
-        r_xy = math.sqrt(x**2 + y**2)
-        L_base = 0.059  # Base height
-        z_above_shoulder = z - L_base
-        
-        # Calculate pitch from vertical axis toward target
-        # atan2(horizontal, vertical) gives angle from vertical
-        # For targets below shoulder (negative z_above_shoulder), this correctly
-        # gives angles > 90 degrees (pointing downward)
-        if r_xy > 0.001 or abs(z_above_shoulder) > 0.001:
-            desired_pitch = math.atan2(r_xy, z_above_shoulder)
-            # Clamp pitch to reasonable range (0 to ~150 degrees)
-            # Avoid extreme angles that would be mechanically impossible
-            desired_pitch = max(0, min(math.radians(150), desired_pitch))
-        else:
-            desired_pitch = 0  # Default to pointing up if target is at origin
-        
-        # Solve IK with the calculated pitch so gripper reaches target
-        joint_angles = self.solve_ik(x, y, z, pitch=desired_pitch, roll=0)
+        # Solve IK — automatically finds the best pitch so the gripper
+        # tip lands exactly on the target point
+        joint_angles = self.solve_ik_to_point(x, y, z)
         
         if joint_angles is None:
             self.info_label.config(
@@ -698,24 +1300,54 @@ class ArmControlGUI(Node):
             'gripper': 5
         }
         
-        # Store target angles for smooth interpolation
-        # Use the IK solution directly - it already calculates the correct
-        # forearm angle to make the gripper reach the target
         target_angles = [0.0] * 6
         for ik_joint, gui_idx in ik_to_gui_mapping.items():
             angle = joint_angles[ik_joint]
             angle = max(0, min(180, angle))
             target_angles[gui_idx] = angle
-        
+
+        # Keep whatever gripper angle the user has set — IK only
+        # controls the arm joints, not the gripper.
+        target_angles[5] = float(self.joint_sliders[5].get())
+
+        # --- Safety: reject if any joint would jump too far ---
+        if not self._check_joint_delta_safe(target_angles, label='3D-IK'):
+            return
+
         # Publish target marker for RViz
         self.publish_target_marker(x, y, z)
         
-        # Start smooth interpolation to target
-        self.info_label.config(
-            text=f"→ Moving to ({int(x_mm)}, {int(y_mm)}, {int(z_mm)}) mm...",
-            fg='#00aaff'
-        )
-        self.interpolate_to_target(target_angles)
+        # In auto-follow mode: direct move (no interpolation) for real-time response
+        if self.auto_follow_active.get():
+            for i, angle in enumerate(target_angles):
+                self.joint_sliders[i].set(angle)
+                self.target_positions[i] = angle
+            
+            # Update 3D visualization
+            if self.viz_3d:
+                joint_angles_dict = {
+                    'base': target_angles[0],
+                    'shoulder': target_angles[1],
+                    'elbow': target_angles[2],
+                    'forearm': target_angles[3],
+                    'wrist': target_angles[4],
+                    'gripper': target_angles[5]
+                }
+                self.viz_3d.update_from_ik_solution(joint_angles_dict)
+            
+            # Send immediately
+            self.send_command()
+            self.info_label.config(
+                text=f"⚡ Tracking ({int(x_mm)}, {int(y_mm)}, {int(z_mm)}) mm",
+                fg='#ffaa00'
+            )
+        else:
+            # Normal mode: smooth interpolation
+            self.info_label.config(
+                text=f"→ Moving to ({int(x_mm)}, {int(y_mm)}, {int(z_mm)}) mm...",
+                fg='#00aaff'
+            )
+            self.interpolate_to_target(target_angles)
 
     def interpolate_to_target(self, target_angles, steps=30, delay_ms=50):
         """
@@ -945,19 +1577,9 @@ class ArmControlGUI(Node):
                 )
                 self.root.update()
             
-            # Calculate the pitch angle that will make the gripper reach the target
-            # pitch=0 means pointing up, pitch=pi/2 means pointing horizontal
-            r_xy = math.sqrt(x_m**2 + y_m**2)
-            L_base = 0.059  # Base height
-            z_above_shoulder = z_m - L_base
-            
-            if r_xy > 0.001 or abs(z_above_shoulder) > 0.001:
-                desired_pitch = math.atan2(r_xy, z_above_shoulder)
-            else:
-                desired_pitch = 0
-            
-            # Solve IK with calculated pitch so gripper (5th joint) reaches target
-            joint_angles = self.solve_ik(x_m, y_m, z_m, pitch=desired_pitch, roll=0)
+            # Solve IK — automatically finds the best pitch so the
+            # gripper tip lands exactly on the target point
+            joint_angles = self.solve_ik_to_point(x_m, y_m, z_m)
             
             if joint_angles is None:
                 if show_feedback:
@@ -983,11 +1605,31 @@ class ArmControlGUI(Node):
                 'gripper': 5    # J6
             }
             
-            # Update sliders with IK solution
+            # Build target angle list and clamp to 0-180
+            target_angles = [0.0] * 6
             for ik_joint, gui_idx in ik_to_gui_mapping.items():
                 angle = joint_angles[ik_joint]
-                # Clamp to 0-180 range
                 angle = max(0, min(180, angle))
+                target_angles[gui_idx] = angle
+
+            # Keep whatever gripper angle the user has set — IK only
+            # controls the arm joints, not the gripper.
+            target_angles[5] = float(self.joint_sliders[5].get())
+
+            # --- Safety: reject if any joint would jump too far ---
+            if not self._check_joint_delta_safe(target_angles, label='Cart-IK'):
+                if show_feedback:
+                    messagebox.showwarning(
+                        "Movement Too Large",
+                        f"One or more joints would move more than "
+                        f"{self.MAX_JOINT_DELTA_DEG:.0f}° in a single step.\n\n"
+                        "Move the arm closer to the target first using "
+                        "the joint sliders, then try again."
+                    )
+                return
+
+            # Update sliders with IK solution
+            for gui_idx, angle in enumerate(target_angles):
                 self.joint_sliders[gui_idx].set(angle)
                 self.target_positions[gui_idx] = angle
             
@@ -1174,6 +1816,7 @@ class ArmControlGUI(Node):
     def on_closing(self):
         """Cleanup on window close"""
         self.get_logger().info("Shutting down GUI...")
+        self._cleanup_camera()
         self.destroy_node()
         self.root.destroy()
 

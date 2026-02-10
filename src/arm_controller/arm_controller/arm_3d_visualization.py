@@ -68,6 +68,10 @@ class Arm3DVisualization:
         self.drag_start_y = 0
         self.rotating_view = False
         
+        # Auto-follow mode: gripper tracks target in real-time during drag
+        self.auto_follow = False
+        self._drag_ik_pending = False
+        
         # Callback for when user wants to move arm to target
         self.on_move_to_target = None
         
@@ -163,17 +167,6 @@ class Arm3DVisualization:
             command=self.reset_target
         ).pack(side=tk.RIGHT, padx=2)
         
-        # Move to Target button
-        self.move_btn = tk.Button(
-            controls_frame,
-            text="Move Arm Here",
-            font=('Arial', 8, 'bold'),
-            bg='#cc6600',
-            fg='white',
-            command=self.trigger_move_to_target
-        )
-        self.move_btn.pack(side=tk.RIGHT, padx=5)
-        
         # Position display
         self.pos_label = tk.Label(
             self.frame,
@@ -184,14 +177,15 @@ class Arm3DVisualization:
         )
         self.pos_label.pack(pady=2)
         
-        # Instructions
-        tk.Label(
+        # Instructions (updated when auto_follow changes)
+        self.instructions_label = tk.Label(
             self.frame,
-            text="Drag orange dot to set target | Click 'Move Arm Here' to move",
+            text="Drag orange dot to set target | Press Start to enable auto-follow",
             font=('Arial', 8),
             bg='#3b3b3b',
             fg='#888888'
-        ).pack(pady=1)
+        )
+        self.instructions_label.pack(pady=1)
     
     def project_3d_to_2d(self, x, y, z):
         """
@@ -528,6 +522,27 @@ class Arm3DVisualization:
         if self.on_target_move:
             self.on_target_move(self.target_x, self.target_y, self.target_z)
     
+    def _fire_drag_ik(self):
+        """Fire the IK callback after a short throttle delay."""
+        self._drag_ik_pending = False
+        if self.auto_follow and self.on_target_move and self.dragging:
+            self.on_target_move(self.target_x, self.target_y, self.target_z)
+
+    def set_auto_follow(self, enabled):
+        """Enable or disable automatic gripper-follows-target mode."""
+        self.auto_follow = enabled
+        if hasattr(self, 'instructions_label') and self.instructions_label:
+            if enabled:
+                self.instructions_label.config(
+                    text="⚡ AUTO-FOLLOW ACTIVE — Drag target, arm follows in real-time",
+                    fg='#ffaa00'
+                )
+            else:
+                self.instructions_label.config(
+                    text="Drag orange dot to set target | Press Start to enable auto-follow",
+                    fg='#888888'
+                )
+
     def set_move_callback(self, callback):
         """Set the callback for when user clicks Move to Target"""
         self.on_move_to_target = callback
@@ -620,13 +635,23 @@ class Arm3DVisualization:
             self.drag_start_x = event.x
             self.drag_start_y = event.y
             
-            # Update display only - don't trigger IK during drag
+            # Update display
             self.update_position_label()
             self.draw_scene()
+            
+            # If auto-follow is active, trigger IK in real-time as user drags
+            if self.auto_follow and self.on_target_move and not self._drag_ik_pending:
+                self._drag_ik_pending = True
+                # Use after_idle to batch rapid drag events
+                self.canvas.after(80, self._fire_drag_ik)
     
     def on_mouse_up(self, event):
         """Handle left mouse button release"""
+        if self.dragging and self.auto_follow and self.on_target_move:
+            # Fire IK one final time at the release position
+            self.on_target_move(self.target_x, self.target_y, self.target_z)
         self.dragging = False
+        self._drag_ik_pending = False
     
     def on_right_mouse_down(self, event):
         """Handle right mouse button down (view rotation)"""

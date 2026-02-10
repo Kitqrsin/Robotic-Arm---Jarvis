@@ -31,6 +31,10 @@ setup(
             "arm_gui = arm_controller.arm_gui:main",
             "trajectory_executor = arm_controller.trajectory_executor:main",
             "simple_controller = arm_controller.simple_controller:main",
+            "camera_node = arm_controller.camera_node:main",
+            "object_detector_node = arm_controller.object_detector_node:main",
+            "pick_place_node = arm_controller.pick_place_node:main",
+            "camera_calibration = arm_controller.camera_calibration:main",
         ],
     },
 )

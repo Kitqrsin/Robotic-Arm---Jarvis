@@ -105,13 +105,13 @@
                                 </div>
                                 <span id="val-s1" class="font-mono bg-slate-900/70 px-3 py-1 rounded-lg text-blue-400 font-bold text-lg shadow-inner">98°</span>
                             </div>
-                            <input type="range" id="s1" min="0" max="270" value="98"
+                            <input type="range" id="s1" min="0" max="245" value="98"
                                 oninput="document.getElementById('val-s1').innerText = this.value + '°'"
                                 onchange="updateArm(1, this.value)" class="mb-2">
                             <div class="flex justify-between text-xs text-slate-500 mb-3">
                                 <span>0°</span>
-                                <span>135°</span>
-                                <span>270°</span>
+                                <span>122°</span>
+                                <span>245°</span>
                             </div>
                             <!-- Speed Control -->
                             <div class="pt-3 border-t border-slate-700/50">
@@ -363,6 +363,30 @@
                     </div>
 
                 </aside>
+
+                <!-- Camera Preview (collapsible) -->
+                <div class="md:col-span-2 xl:col-span-1">
+                    <div class="glass rounded-xl p-3 sm:p-4 border border-slate-700/50 shadow-xl">
+                        <div class="flex items-center justify-between gap-2 mb-2 sm:mb-3 pb-2 border-b border-slate-700/50 cursor-pointer"
+                            onclick="document.getElementById('camera-container').classList.toggle('hidden')">
+                            <div class="flex items-center gap-2">
+                                <span class="text-lg">📷</span>
+                                <span class="text-xs sm:text-sm font-semibold text-slate-300">Camera Preview</span>
+                            </div>
+                            <span class="text-slate-500 text-xs">click to toggle</span>
+                        </div>
+                        <div id="camera-container">
+                            <img id="camera-img" src="/video_feed" alt="Camera Stream"
+                                class="w-full rounded-lg border border-slate-600/50"
+                                onload="document.getElementById('no-cam-msg').style.display='none'; this.style.display='block';"
+                                onerror="this.style.display='none'; document.getElementById('no-cam-msg').style.display='block'; setTimeout(()=>{this.src='/video_feed?t='+Date.now()}, 5000);"
+                                style="max-height: 300px; object-fit: contain; background: #000;">
+                            <p id="no-cam-msg" class="text-slate-500 text-xs text-center py-8" style="display:none;">
+                                📷 Camera initializing... <a href="/camera" class="text-blue-400 underline">Open preview page</a>
+                            </p>
+                        </div>
+                    </div>
+                </div>
 
                 <!-- Column 4: Console Output (far right, 1 col on xl, full width on mobile) -->
                 <div class="md:col-span-2 xl:col-span-1">

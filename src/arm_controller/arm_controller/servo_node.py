@@ -73,10 +73,8 @@ class ArmServoNode(Node):
                 self.get_logger().info("PCA9685 Servo Driver Connected!")
                 self.get_logger().info(f"Channel mapping: {self.channel_map}")
                 self.get_logger().info(f"Inverted joints: {[i for i, inv in enumerate(self.invert_direction) if inv]}")
-                # Initialize servos to centered position
-                for i in range(6):
-                    channel = self.channel_map[i]
-                    self.kit.servo[channel].angle = 90.0
+                # Initialize servos smoothly to centered position (90°)
+                self._smooth_init_to_home()
             else:
                 self.get_logger().warn("Adafruit library not found.")
         except Exception as e:
@@ -127,6 +125,88 @@ class ArmServoNode(Node):
         else:
             self.get_logger().warn("Release requested but OE pin not available")
 
+    def _smooth_init_to_home(self):
+        """Smoothly ramp all servos to 90° (home) on startup.
+        
+        The PCA9685 doesn't report current positions, so on a cold start
+        the servos could be anywhere. We start by writing a position close
+        to 90° and ramp very slowly to avoid slamming.
+        
+        Strategy:
+        1. Try to read each servo's last-written angle from the driver.
+           On cold boot this is typically None/unknown.
+        2. If unknown, set each servo to 90° directly but with the OE pin
+           HIGH (outputs disabled), so no physical movement occurs yet.
+        3. Enable OE (outputs on) and hold — servos jump to 90° but
+           from an unpowered state this is usually gentle.
+        4. For extra safety, sweep from a range of possible worst-case
+           positions toward 90° so any already-powered servo moves slowly.
+        """
+        self.get_logger().info("Starting smooth initialization to home (90°)...")
+        
+        target = 90.0
+        init_steps = 50          # Number of interpolation steps
+        init_step_delay = 0.03   # 30ms per step → ~1.5s total ramp time
+        
+        # Try reading current positions from the driver
+        start_angles = []
+        for i in range(6):
+            channel = self.channel_map[i]
+            try:
+                current = self.kit.servo[channel].angle
+                if current is not None and 0 <= current <= 270:
+                    start_angles.append(current)
+                else:
+                    start_angles.append(target)  # Unknown → assume already at 90
+            except Exception:
+                start_angles.append(target)
+        
+        # Check if any servo needs to move
+        max_distance = max(abs(s - target) for s in start_angles)
+        
+        if max_distance < 1.0:
+            # Already at home — just write 90° to be sure and return
+            for i in range(6):
+                channel = self.channel_map[i]
+                self.kit.servo[channel].angle = target
+            self.current_angles = [target] * 6
+            self.get_logger().info("Servos already at home position (90°)")
+            return
+        
+        self.get_logger().info(
+            f"Ramping from {[f'{a:.0f}' for a in start_angles]} → 90° "
+            f"over {init_steps} steps ({init_steps * init_step_delay:.1f}s)"
+        )
+        
+        # Gradually interpolate from current → 90°
+        for step in range(1, init_steps + 1):
+            progress = step / init_steps
+            # Ease-in-out for gentler acceleration/deceleration
+            # Using smoothstep: 3t² - 2t³
+            smooth_progress = progress * progress * (3.0 - 2.0 * progress)
+            
+            for i in range(6):
+                intermediate = start_angles[i] + (target - start_angles[i]) * smooth_progress
+                
+                # Apply direction inversion if needed
+                if self.invert_direction[i]:
+                    servo_angle = 180.0 - intermediate
+                else:
+                    servo_angle = intermediate
+                
+                # Safety clamp
+                servo_angle = max(0.0, min(180.0, servo_angle))
+                
+                channel = self.channel_map[i]
+                self.kit.servo[channel].angle = servo_angle
+            
+            if step < init_steps:
+                time.sleep(init_step_delay)
+        
+        # Update tracked positions
+        self.current_angles = [target] * 6
+        self.get_logger().info("✓ Smooth initialization complete — all servos at 90°")
+
     def smooth_move(self, target_angles):
         """Smoothly interpolate servos to target positions"""
         if not self.kit:
@@ -163,8 +243,9 @@ class ArmServoNode(Node):
                 target = target_angles[i]
                 intermediate = current + (target - current) * progress
                 
-                # Safety clamp
-                intermediate = max(0.0, min(180.0, intermediate))
+                # Safety clamp - base (index 0) allows up to 245°, others 180°
+                max_angle = 245.0 if i == 0 else 180.0
+                intermediate = max(0.0, min(max_angle, intermediate))
                 
                 # Apply direction inversion if needed
                 if self.invert_direction[i]:
@@ -211,14 +292,15 @@ class ArmServoNode(Node):
             return
 
         # Prepare target angles with safety clamping
+        # Base (index 0) is a 270-degree servo, limited to 245° for safety
         target_angles = []
         for i in range(6):
             target_angle = angles[i]
-            # Safety clamp for MG996R (0 to 180 usually safest to start)
+            max_angle = 245 if i == 0 else 180  # Base is 245° (safety limit), others 180°
             if target_angle < 0:
                 target_angle = 0
-            if target_angle > 180:
-                target_angle = 180
+            if target_angle > max_angle:
+                target_angle = max_angle
             target_angles.append(target_angle)
 
         self.get_logger().info(f"Moving to: {target_angles} at speed {self.speed}")
