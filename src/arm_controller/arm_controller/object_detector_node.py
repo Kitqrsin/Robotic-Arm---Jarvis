@@ -39,7 +39,7 @@ class ObjectDetectorNode(Node):
 
         # --- Parameters ---
         self.declare_parameter('model', 'yolov8n.pt')         # YOLO model file
-        self.declare_parameter('confidence', 0.45)             # Min detection confidence
+        self.declare_parameter('confidence', 0.55)             # Min detection confidence
         self.declare_parameter('device', 'cpu')                # 'cpu' or '0' for GPU
         self.declare_parameter('max_detections', 10)           # Max objects per frame
         self.declare_parameter('detect_interval', 3)           # Process every Nth frame

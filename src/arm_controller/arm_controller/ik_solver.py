@@ -230,10 +230,10 @@ class ArmIKSolver:
         L_wrist = 0.061      # Wrist to gripper (5th joint)
         
         # Base rotation (yaw) - rotation around vertical axis
-        # The base servo is 245° range (0-245°), centered at 90°
+        # The base servo is 270° range (0-270°), centered at 90°
         # atan2 gives angle from +X axis: 0 at +X, ±π at -X
         # Our base: 90° = +X, 0° = -Y, 180° = +Y
-        # 245° limit provides safety margin from full mechanical range
+        # 270° = full mechanical range of the base servo
         base_angle = math.atan2(y, x)
         base_degrees = math.degrees(base_angle) + 90.0
         
@@ -241,12 +241,12 @@ class ArmIKSolver:
         if base_degrees < 0:
             base_degrees += 360.0
         
-        # Check if target direction is reachable with base servo limits (0-245°)
+        # Check if target direction is reachable with base servo limits (0-270°)
         # Allow small tolerance for numerical precision
-        if base_degrees > 250:
-            return None  # Target is beyond the 245° range, unreachable
+        if base_degrees > 275:
+            return None  # Target is beyond the 270° range, unreachable
         
-        base_degrees = max(0, min(245, base_degrees))
+        base_degrees = max(0, min(270, base_degrees))
         
         # Distance in XY plane to GRIPPER
         r_xy = math.sqrt(x**2 + y**2)
@@ -348,10 +348,10 @@ class ArmIKSolver:
     
     def _clamp_angles(self, angles):
         """Clamp joint angles to safe servo ranges"""
-        # Base motor is 245 degrees (safety limit, mechanical max ~270)
+        # Base motor is 270 degrees (full mechanical range)
         # All other joints are 180 degree servos
         limits = {
-            'base': (0, 245),
+            'base': (0, 270),
             'shoulder': (0, 180),
             'elbow': (0, 180),
             'forearm': (0, 180),
@@ -387,12 +387,13 @@ class ArmIKSolver:
         L_wrist = 0.061      # Wrist to gripper
         
         # Convert to radians - MUST match arm_3d_visualization.py EXACTLY
-        # Shoulder and Elbow use INVERTED conversion
-        # Forearm: also INVERTED to match visualization display
+        # Shoulder, Elbow, and Forearm use INVERTED conversion
+        # IK encodes forearm as: f_deg = 90 - degrees(forearm_rad)
+        # so FK must decode as: forearm_rad = radians(90 - forearm)
         base_rad = math.radians(base - 90.0)
         shoulder_rad = math.radians(90.0 - shoulder)  # INVERTED
         elbow_rad = math.radians(90.0 - elbow)        # INVERTED
-        forearm_rad = -math.radians(forearm - 90.0)   # INVERTED (matches viz)
+        forearm_rad = math.radians(90.0 - forearm)    # INVERTED (matches IK encode)
         wrist_rad = math.radians(wrist - 90.0)
         
         # Calculate positions using SAME math as arm_3d_visualization.py

@@ -18,22 +18,35 @@ import time
 import subprocess
 import shutil
 import os
+import struct
+import fcntl
+
+# Detect if we are running inside a Docker container
+IN_DOCKER = os.path.exists('/.dockerenv') or os.path.exists('/run/.containerenv')
 
 # Try picamera2 first (native Pi Camera support), fall back to OpenCV
 PICAMERA2_AVAILABLE = False
 OPENCV_AVAILABLE = False
 
-try:
-    from picamera2 import Picamera2
-    # Also verify libcamera is actually usable (not just pip-installed)
-    import libcamera  # noqa: F401
-    PICAMERA2_AVAILABLE = True
-except (ImportError, ModuleNotFoundError):
-    pass
+if not IN_DOCKER:
+    # picamera2 only works on native Pi OS, never inside Docker
+    try:
+        from picamera2 import Picamera2
+        import libcamera  # noqa: F401
+        PICAMERA2_AVAILABLE = True
+    except (ImportError, ModuleNotFoundError):
+        pass
 
 try:
     import cv2
     OPENCV_AVAILABLE = True
+except ImportError:
+    pass
+
+PIL_AVAILABLE = False
+try:
+    from PIL import Image as PILImage
+    PIL_AVAILABLE = True
 except ImportError:
     pass
 
@@ -46,7 +59,7 @@ class CameraNode(Node):
 
         # --- Parameters ---
         self.declare_parameter('frame_rate', 15.0)       # FPS
-        self.declare_parameter('width', 640)
+        self.declare_parameter('width', 640)              # wider resolution
         self.declare_parameter('height', 480)
         self.declare_parameter('device_id', -1)          # -1 = auto-scan
         self.declare_parameter('camera_backend', 'auto')  # 'picamera2', 'libcamera', 'opencv', 'auto'
@@ -84,7 +97,7 @@ class CameraNode(Node):
         """Try to initialise the camera with the best available backend."""
         backend = self.backend
 
-        # --- 1. picamera2 (native libcamera) ---
+        # --- 1. picamera2 (native libcamera, host only) ---
         if backend in ('auto', 'picamera2') and PICAMERA2_AVAILABLE:
             if self._try_picamera2():
                 return
@@ -94,10 +107,47 @@ class CameraNode(Node):
             if self._try_libcamera_pipe():
                 return
 
-        # --- 3. OpenCV direct V4L2 ---
+        # --- 3. Shared JPEG file (best option for Pi 5 inside Docker) ---
+        #    Try this before OpenCV when in Docker, since V4L2 raw capture
+        #    doesn't work on Pi 5 without libcamera.
+        if IN_DOCKER or backend == 'shared-file':
+            shared_file = '/workspace/.camera_frame.jpg'
+            if os.path.isfile(shared_file):
+                self._shared_frame_file = shared_file
+                self.active_backend = 'shared-file'
+                self.get_logger().info(
+                    f'Using shared JPEG file backend ({shared_file}). '
+                    'Host camera_stream.sh should be running.'
+                )
+                self._shared_last_mtime = 0.0
+                return
+            else:
+                self.get_logger().warn(
+                    f'Shared frame file {shared_file} not found. '
+                    'Start host-side camera: ./camera_stream.sh start'
+                )
+                # Still set up to poll for it
+                self._shared_frame_file = shared_file
+                self.active_backend = 'shared-file-waiting'
+                self._shared_last_mtime = 0.0
+                return
+
+        # --- 4. OpenCV direct V4L2 (works on Pi 4 / USB cameras) ---
         if backend in ('auto', 'opencv') and OPENCV_AVAILABLE:
             if self._try_opencv():
                 return
+
+        # --- 5. Shared JPEG file (non-Docker fallback) ---
+        shared_file = '/workspace/.camera_frame.jpg'
+        if os.path.isfile(shared_file):
+            self._shared_frame_file = shared_file
+            self.active_backend = 'shared-file'
+            self.get_logger().info(
+                f'Using shared JPEG file backend ({shared_file}). '
+                'Run ./camera_stream.sh start on the host.'
+            )
+            self._shared_last_mtime = 0.0
+            return
 
         self.get_logger().error(
             'No camera backend available!\n'
@@ -105,7 +155,8 @@ class CameraNode(Node):
             '  1. Is the camera detected?  Run: rpicam-hello --list-cameras\n'
             '  2. Pi 5 needs a 22-to-15 pin adapter cable for Pi Camera V2\n'
             '  3. Docker needs: privileged=true, /dev:/dev volume mount\n'
-            '  4. Install opencv-python: pip3 install opencv-python-headless'
+            '  4. Install opencv-python: pip3 install opencv-python-headless\n'
+            '  5. Or start host-side camera: ./camera_stream.sh start'
         )
 
     def _try_picamera2(self):
@@ -189,19 +240,38 @@ class CameraNode(Node):
             self.get_logger().warn(f'libcamera pipeline failed: {e}')
             return False
 
+    @staticmethod
+    def _is_v4l2_capture_device(dev_path):
+        """Check if a /dev/videoN device supports V4L2 VIDEO_CAPTURE via ioctl."""
+        VIDIOC_QUERYCAP = 0x80685600  # ioctl number for VIDIOC_QUERYCAP on ARM64
+        V4L2_CAP_VIDEO_CAPTURE = 0x00000001
+        try:
+            fd = os.open(dev_path, os.O_RDWR | os.O_NONBLOCK)
+            try:
+                buf = bytearray(104)  # struct v4l2_capability size
+                fcntl.ioctl(fd, VIDIOC_QUERYCAP, buf)
+                # capabilities field is at offset 84, 4 bytes LE
+                caps = struct.unpack_from('<I', buf, 84)[0]
+                return bool(caps & V4L2_CAP_VIDEO_CAPTURE)
+            finally:
+                os.close(fd)
+        except Exception:
+            return False
+
     def _try_opencv(self):
         """Scan V4L2 devices for a working camera."""
-        # On Pi 5, video devices start at /dev/video19+
-        # On Pi 4, they start at /dev/video0
-        # Try explicit device_id first, then scan
         if self.device_id >= 0:
             candidates = [self.device_id]
         else:
-            # Build list from what actually exists in /dev
+            # Build list from actual /dev/videoN that support VIDEO_CAPTURE
             candidates = []
-            for i in range(36):
-                if os.path.exists(f'/dev/video{i}'):
+            for i in range(40):
+                dev = f'/dev/video{i}'
+                if os.path.exists(dev) and self._is_v4l2_capture_device(dev):
                     candidates.append(i)
+            self.get_logger().info(
+                f'V4L2 capture devices found: {", ".join(f"/dev/video{d}" for d in candidates) or "none"}'
+            )
 
         for dev_id in candidates:
             try:
@@ -253,6 +323,42 @@ class CameraNode(Node):
                 self.get_logger().warn('OpenCV frame grab failed')
                 return
             frame = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+
+        # --- Shared JPEG file ---
+        elif hasattr(self, '_shared_frame_file') and self._shared_frame_file:
+            try:
+                if not os.path.isfile(self._shared_frame_file):
+                    return  # file not yet created
+                mtime = os.path.getmtime(self._shared_frame_file)
+                if mtime == self._shared_last_mtime:
+                    return  # no new frame
+                self._shared_last_mtime = mtime
+                # Update backend status once the file appears
+                if self.active_backend == 'shared-file-waiting':
+                    self.active_backend = 'shared-file'
+                    self.get_logger().info('Shared camera frame file appeared — streaming.')
+                with open(self._shared_frame_file, 'rb') as f:
+                    jpeg_data = f.read()
+                if len(jpeg_data) < 100:
+                    return
+                if OPENCV_AVAILABLE:
+                    decoded = cv2.imdecode(
+                        np.frombuffer(jpeg_data, dtype=np.uint8), cv2.IMREAD_COLOR
+                    )
+                    if decoded is not None:
+                        frame = cv2.cvtColor(decoded, cv2.COLOR_BGR2RGB)
+                elif PIL_AVAILABLE:
+                    import io
+                    pil_img = PILImage.open(io.BytesIO(jpeg_data))
+                    frame = np.array(pil_img.convert('RGB'))
+                else:
+                    self.get_logger().error(
+                        'Neither OpenCV nor PIL available – cannot decode JPEG',
+                        throttle_duration_sec=10.0)
+                    return
+            except Exception as e:
+                self.get_logger().warn(f'Shared file read error: {e}', throttle_duration_sec=5.0)
+                return
 
         else:
             return  # no camera

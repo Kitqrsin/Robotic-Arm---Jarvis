@@ -12,11 +12,17 @@ import subprocess
 import shutil
 import os
 import time
+import struct
+import fcntl
+
+# Detect Docker environment
+IN_DOCKER = os.path.exists('/.dockerenv') or os.path.exists('/run/.containerenv')
 
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import JointState, Image as ROSImage
 from std_msgs.msg import Float32MultiArray, Float32, Bool
+from geometry_msgs.msg import Vector3
 from visualization_msgs.msg import Marker
 from builtin_interfaces.msg import Duration
 
@@ -40,6 +46,9 @@ except ImportError:
 from arm_controller.ik_solver import ArmIKSolver
 from arm_controller.arm_3d_visualization import Arm3DVisualization
 
+# Import in-process object detector for camera overlay
+from arm_controller.gui_object_detector import GUIObjectDetector
+
 # Try to import MoveIt IK client (optional)
 try:
     from arm_controller.moveit_ik_client import MoveItIKClient
@@ -55,7 +64,7 @@ class ArmControlGUI(Node):
         
         self.root = root
         self.root.title("Jarvis Robot Arm Controller")
-        self.root.geometry("1400x900")
+        self.root.geometry("1600x1050")
         self.root.configure(bg='#2b2b2b')
         
         # Joint names matching your OnShape URDF
@@ -117,9 +126,54 @@ class ArmControlGUI(Node):
         self.camera_fps_label = None
         self._cam_fps_time = time.time()
         self._cam_fps_count = 0
+
+        # Object detection overlay (face detection via Haar cascades)
+        self.detect_enabled = tk.BooleanVar(value=False)
+        self.object_detector = GUIObjectDetector(
+            detect_every_n=3,
+            min_face_size=50,
+            scale_factor=1.15,
+            min_neighbours=5,
+            logger=self.get_logger(),
+        )
+        self.detect_info_label = None
+
+        # Face-following mode
+        self.follow_enabled = tk.BooleanVar(value=False)
+        self._follow_last_time = 0.0      # rate-limit follow commands
+        self._follow_interval = 0.12      # seconds between follow updates (~8 Hz)
+        self._follow_lost_count = 0       # frames without a face
         
         # Auto-follow mode: arm tracks 3D target in real-time
         self.auto_follow_active = tk.BooleanVar(value=False)
+
+        # ---- Handshake Mode state ----
+        self.handshake_enabled = tk.BooleanVar(value=False)
+        self._handshake_in_progress = False
+        self._handshake_detect_count = 0
+        self._handshake_detect_threshold = 10  # consecutive frames before triggering
+        self._handshake_cancelled = False       # set True to abort mid-sequence
+
+        # ---- Bartender Mode state ----
+        self.bartender_enabled = tk.BooleanVar(value=False)
+        self._bartender_in_progress = False
+        self._bartender_cancelled = False
+        self._bartender_detect_count = 0
+        self._bartender_detect_threshold = 8   # consecutive frames with a cup
+        self._bartender_cup = None              # latest cup detection dict
+
+        # ---- Eye-in-Hand Visual Servoing state ----
+        self.visual_servo_enabled = tk.BooleanVar(value=False)
+        self._vs_gain_xy = 0.0008      # metres per unit error per tick (XY)
+        self._vs_gain_z  = 0.02        # metres per unit error per tick (depth)
+        self._vs_max_step = 0.003      # max displacement per tick (metres) — velocity cap
+        self._vs_interval = 0.10       # seconds between servoing ticks
+        self._vs_last_time = 0.0
+        self._vs_last_error = Vector3() # latest error from /vision/error
+        self._vs_error_fresh = False    # True once a new error arrives
+        # Flying-target position (metres). Initialised from current FK on
+        # first activation so the arm starts from where it already is.
+        self._vs_target = None          # (x, y, z) or None = uninitialised
         
         # Real-time mode flag and update control
         self.realtime_mode = tk.BooleanVar(value=False)
@@ -186,6 +240,14 @@ class ArmControlGUI(Node):
         )
         self._ros2_camera_active = False
         self._ros2_camera_last_time = 0.0
+
+        # Subscriber for visual-servoing error vector
+        self.vision_error_sub = self.create_subscription(
+            Vector3,
+            '/vision/error',
+            self._vision_error_callback,
+            10
+        )
         
         # Track emergency stop state
         self.estop_active = False
@@ -281,7 +343,7 @@ class ArmControlGUI(Node):
             self.joint_labels.append(value_label)
             
             # Base (J1) is limited to 245° for safety (mechanical max ~270°)
-            slider_max = 245 if i == 0 else 180
+            slider_max = 270 if i == 0 else 180
             
             # Slider
             slider = tk.Scale(
@@ -423,10 +485,10 @@ class ArmControlGUI(Node):
         self.cartesian_labels = {}
         
         # Define ranges for each axis (in millimeters)
-        # Increased by 1.5x for 5-joint arm with extended reach
+        # Extended ranges — base servo supports 270° sweep
         cartesian_ranges = {
-            'X': (-450, 450),
-            'Y': (-450, 450),
+            'X': (-600, 600),
+            'Y': (-600, 600),
             'Z': (0, 600)
         }
         
@@ -625,6 +687,71 @@ class ArmControlGUI(Node):
         )
         snap_btn.pack(side=tk.LEFT, padx=5)
 
+        detect_btn = tk.Checkbutton(
+            ctrl_row,
+            text="🔍 Detect",
+            variable=self.detect_enabled,
+            font=('Arial', 9),
+            bg='#3b3b3b',
+            fg='#ff9900',
+            selectcolor='#555555',
+            activebackground='#3b3b3b',
+            command=self._on_detect_toggle
+        )
+        detect_btn.pack(side=tk.LEFT, padx=5)
+
+        self.follow_btn = tk.Checkbutton(
+            ctrl_row,
+            text="� Follow",
+            variable=self.follow_enabled,
+            font=('Arial', 9),
+            bg='#3b3b3b',
+            fg='#00ccff',
+            selectcolor='#555555',
+            activebackground='#3b3b3b',
+            command=self._on_follow_toggle
+        )
+        self.follow_btn.pack(side=tk.LEFT, padx=5)
+
+        self.servo_btn = tk.Checkbutton(
+            ctrl_row,
+            text="👁 Servo",
+            variable=self.visual_servo_enabled,
+            font=('Arial', 9),
+            bg='#3b3b3b',
+            fg='#ff66ff',
+            selectcolor='#555555',
+            activebackground='#3b3b3b',
+            command=self._on_visual_servo_toggle
+        )
+        self.servo_btn.pack(side=tk.LEFT, padx=5)
+
+        self.handshake_btn = tk.Checkbutton(
+            ctrl_row,
+            text="\U0001F91D Handshake",
+            variable=self.handshake_enabled,
+            font=('Arial', 9),
+            bg='#3b3b3b',
+            fg='#ffcc00',
+            selectcolor='#555555',
+            activebackground='#3b3b3b',
+            command=self._on_handshake_toggle
+        )
+        self.handshake_btn.pack(side=tk.LEFT, padx=5)
+
+        self.bartender_btn = tk.Checkbutton(
+            ctrl_row,
+            text="\U0001F943 Bartender",
+            variable=self.bartender_enabled,
+            font=('Arial', 9),
+            bg='#3b3b3b',
+            fg='#32ff7e',
+            selectcolor='#555555',
+            activebackground='#3b3b3b',
+            command=self._on_bartender_toggle
+        )
+        self.bartender_btn.pack(side=tk.LEFT, padx=5)
+
         self.camera_fps_label = tk.Label(
             ctrl_row,
             text="FPS: --",
@@ -643,8 +770,8 @@ class ArmControlGUI(Node):
         )
         self.camera_status_label.pack(side=tk.RIGHT, padx=5)
 
-        # -- Video display (fixed 320x240 pixel area) --
-        cam_display = tk.Frame(cam_frame, bg='#1a1a1a', width=320, height=240)
+        # -- Video display (wider 640x480 pixel area) --
+        cam_display = tk.Frame(cam_frame, bg='#1a1a1a', width=640, height=480)
         cam_display.pack(padx=5, pady=5)
         cam_display.pack_propagate(False)
 
@@ -656,6 +783,18 @@ class ArmControlGUI(Node):
             font=('Arial', 12)
         )
         self.camera_label.pack(fill=tk.BOTH, expand=True)
+
+        # Detection info label (shows detected objects)
+        self.detect_info_label = tk.Label(
+            cam_frame,
+            text="",
+            font=('Arial', 9),
+            bg='#3b3b3b',
+            fg='#ff9900',
+            anchor='w',
+            wraplength=620
+        )
+        self.detect_info_label.pack(fill=tk.X, padx=5, pady=(0, 3))
 
         if not PIL_AVAILABLE:
             self.get_logger().warn(
@@ -686,6 +825,14 @@ class ArmControlGUI(Node):
     def camera_image_callback(self, msg: ROSImage):
         """Receive frames from /camera/image_raw published by camera_node."""
         if not self.camera_enabled.get():
+            return
+        # Skip heavy ROS2 raw-image decoding when the more efficient
+        # shared-file backend is already feeding frames.
+        if self._direct_cam_backend == 'shared-file':
+            return
+        # Skip heavy ROS2 raw-image decoding when the more efficient
+        # shared-file backend is already feeding frames.
+        if self._direct_cam_backend == 'shared-file':
             return
         try:
             # Convert ROS Image to numpy array
@@ -720,21 +867,32 @@ class ArmControlGUI(Node):
     # Camera frame file written by host-side camera_stream.sh
     CAMERA_FRAME_FILE = '/workspace/.camera_frame.jpg'
 
+    @staticmethod
+    def _is_v4l2_capture_device(dev_path):
+        """Check if a /dev/videoN supports VIDEO_CAPTURE via ioctl."""
+        VIDIOC_QUERYCAP = 0x80685600
+        V4L2_CAP_VIDEO_CAPTURE = 0x00000001
+        try:
+            fd = os.open(dev_path, os.O_RDWR | os.O_NONBLOCK)
+            try:
+                buf = bytearray(104)
+                fcntl.ioctl(fd, VIDIOC_QUERYCAP, buf)
+                caps = struct.unpack_from('<I', buf, 84)[0]
+                return bool(caps & V4L2_CAP_VIDEO_CAPTURE)
+            finally:
+                os.close(fd)
+        except Exception:
+            return False
+
     def _init_direct_camera(self):
         """Try to open a camera directly. Priority:
-        1. Shared JPEG file (/tmp/jarvis_camera_frame.jpg from camera_stream.sh)
-        2. Local rpicam-vid pipe (if binary available inside container)
-        3. OpenCV V4L2
+        1. Shared JPEG file (/workspace/.camera_frame.jpg from camera_stream.sh)
+        2. Local rpicam-vid pipe (if binary available)
+        3. OpenCV V4L2 (with smart device detection)
+        Inside Docker on Pi 5, skip V4L2 (won't work) and use shared file.
         """
-        # Wait a moment to see if ROS2 camera topic is active
-        time.sleep(3.0)
-        if self._ros2_camera_active:
-            self.get_logger().info('[CAM-GUI] Using ROS2 /camera/image_raw topic')
-            return
-
-        self.get_logger().info('[CAM-GUI] No ROS2 camera topic — trying direct capture...')
-
-        # --- 1. Shared JPEG file (host camera_stream.sh writes here) ---
+        # --- 1. Shared JPEG file (most efficient: ~30 KB JPEG vs 921 KB
+        #        raw RGB through ROS2).  Check immediately, don't wait. ---
         if os.path.isfile(self.CAMERA_FRAME_FILE):
             self._direct_cam_backend = 'shared-file'
             self.get_logger().info(
@@ -743,13 +901,32 @@ class ArmControlGUI(Node):
             threading.Thread(target=self._shared_file_loop, daemon=True).start()
             return
 
-        # --- 2. Try local rpicam-vid pipe (if binary is available) ---
+        # Wait a moment to see if ROS2 camera topic is active
+        time.sleep(2.0)
+        if self._ros2_camera_active:
+            self.get_logger().info('[CAM-GUI] Using ROS2 /camera/image_raw topic')
+            return
+
+        self.get_logger().info('[CAM-GUI] No ROS2 camera topic yet — trying direct capture...')
+
+        # Inside Docker on Pi 5, V4L2 raw capture doesn't work — skip to waiting
+        if IN_DOCKER:
+            self.get_logger().warn(
+                '[CAM-GUI] Inside Docker — V4L2 raw capture not available on Pi 5.\n'
+                '  Waiting for shared frame file...\n'
+                '  Run on HOST: ./camera_stream.sh start'
+            )
+            self._direct_cam_backend = 'waiting'
+            threading.Thread(target=self._wait_for_shared_file, daemon=True).start()
+            return
+
+        # --- 2. Try local rpicam-vid pipe (host only) ---
         vid_cmd = shutil.which('rpicam-vid') or shutil.which('libcamera-vid')
         if vid_cmd:
             try:
                 pipeline = [
                     vid_cmd,
-                    '--width', '320', '--height', '240',
+                    '--width', '640', '--height', '480',
                     '--framerate', '10',
                     '--codec', 'mjpeg',
                     '--nopreview',
@@ -774,15 +951,22 @@ class ArmControlGUI(Node):
                 self.get_logger().warn(f'[CAM-GUI] libcamera pipe failed: {e}')
                 self._direct_cam_proc = None
 
-        # --- 3. Try OpenCV V4L2 ---
+        # --- 3. Try OpenCV V4L2 (host only) ---
         if CV2_AVAILABLE:
-            for dev_id in range(36):
-                if not os.path.exists(f'/dev/video{dev_id}'):
-                    continue
+            capture_devs = []
+            for dev_id in range(40):
+                dev = f'/dev/video{dev_id}'
+                if os.path.exists(dev) and self._is_v4l2_capture_device(dev):
+                    capture_devs.append(dev_id)
+            self.get_logger().info(
+                f'[CAM-GUI] V4L2 capture devices: '
+                f'{", ".join(f"/dev/video{d}" for d in capture_devs) or "none"}'
+            )
+            for dev_id in capture_devs:
                 try:
                     cap = cv2.VideoCapture(dev_id, cv2.CAP_V4L2)
-                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
-                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
                     if cap.isOpened():
                         ret, frame = cap.read()
                         if ret and frame is not None:
@@ -797,7 +981,7 @@ class ArmControlGUI(Node):
                 except Exception:
                     continue
 
-        # --- 4. Wait for shared file to appear (camera_stream.sh may start later) ---
+        # --- 4. Wait for shared file to appear ---
         self.get_logger().warn(
             '[CAM-GUI] No camera found yet. Waiting for shared frame file...\n'
             '  Run on HOST: ./camera_stream.sh start'
@@ -830,7 +1014,7 @@ class ArmControlGUI(Node):
                     continue
                 mtime = os.path.getmtime(self.CAMERA_FRAME_FILE)
                 if mtime == last_mtime:
-                    time.sleep(0.03)  # ~30 FPS polling
+                    time.sleep(0.015)  # ~66 FPS polling
                     continue
                 last_mtime = mtime
                 with open(self.CAMERA_FRAME_FILE, 'rb') as f:
@@ -892,7 +1076,6 @@ class ArmControlGUI(Node):
                     pil_img = PILImage.open(io.BytesIO(jpeg_data))
                     with self._camera_lock:
                         self.latest_camera_frame = np.array(pil_img)
-                time.sleep(1.0 / 10)
             except Exception:
                 break
 
@@ -908,7 +1091,6 @@ class ArmControlGUI(Node):
                     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
                     with self._camera_lock:
                         self.latest_camera_frame = rgb
-                time.sleep(1.0 / 10)
             except Exception:
                 break
 
@@ -930,12 +1112,78 @@ class ArmControlGUI(Node):
                         frame = self.latest_camera_frame.copy()
 
                 if frame is not None:
-                    # Resize to fit the panel (max 320x240 to keep GUI compact)
-                    pil_img = PILImage.fromarray(frame)
-                    # Scale to fit within 320x240 while maintaining aspect ratio
-                    pil_img.thumbnail((320, 240), PILImage.LANCZOS)
-                    self.camera_photo = ImageTk.PhotoImage(image=pil_img)
-                    self.camera_label.configure(image=self.camera_photo, text='')
+                    # Run object detection overlay (if enabled)
+                    frame = self.object_detector.process_frame(frame)
+
+                    # Person-following: move arm to track detected person
+                    if self.follow_enabled.get():
+                        self._follow_person(frame.shape)
+
+                    # Handshake mode: detect person and trigger sequence
+                    if self.handshake_enabled.get() and not self._handshake_in_progress:
+                        dets = self.object_detector.detections
+                        faces = [d for d in dets if d['class_name'] == 'face']
+                        if faces:
+                            self._handshake_detect_count += 1
+                            if self._handshake_detect_count >= self._handshake_detect_threshold:
+                                # Pick the largest face and compute base correction
+                                face = max(faces, key=lambda d: (d['x2'] - d['x1']) * (d['y2'] - d['y1']))
+                                h, w = frame.shape[:2]
+                                face_cx = (face['x1'] + face['x2']) / 2.0
+                                offset_x = (face_cx - w / 2.0) / (w / 2.0)  # -1..+1
+                                base_now = float(self.joint_sliders[0].get())
+                                self._handshake_base = max(0, min(270, base_now - offset_x * 12.0))
+                                self._start_handshake()
+                                self._handshake_detect_count = 0
+                        else:
+                            self._handshake_detect_count = 0
+
+                    # Bartender mode: detect cup and trigger pour sequence
+                    if self.bartender_enabled.get() and not self._bartender_in_progress:
+                        dets = self.object_detector.detections
+                        self._bartender_check_cup(dets)
+
+                    # Update detection info label
+                    if self.detect_enabled.get() and self.detect_info_label:
+                        # Only update info label if follow mode isn't managing it
+                        if not self.follow_enabled.get():
+                            dets = self.object_detector.detections
+                            if dets:
+                                names = set(d['class_name'] for d in dets)
+                                self.detect_info_label.config(
+                                    text=f"\U0001F50D {len(dets)} detected: {', '.join(names)}"
+                                )
+                            else:
+                                mode = self.object_detector.mode
+                                label = 'No cups' if mode == 'cup' else 'No faces'
+                                self.detect_info_label.config(text=f"\U0001F50D {label} detected")
+
+                    # Convert to display image efficiently
+                    # Frames are typically already 640x480 — skip
+                    # expensive PIL resize when no scaling is needed.
+                    h, w = frame.shape[:2]
+                    if w > 640 or h > 480:
+                        # Need to downscale — use cv2 (C-native, ~10x faster
+                        # than PIL LANCZOS) when available.
+                        if CV2_AVAILABLE:
+                            scale = min(640 / w, 480 / h)
+                            frame = cv2.resize(
+                                frame,
+                                (int(w * scale), int(h * scale)),
+                                interpolation=cv2.INTER_LINEAR,
+                            )
+                        else:
+                            pil_img = PILImage.fromarray(frame)
+                            pil_img.thumbnail((640, 480), PILImage.BILINEAR)
+                            self.camera_photo = ImageTk.PhotoImage(image=pil_img)
+                            self.camera_label.configure(image=self.camera_photo, text='')
+                            # (skip redundant conversion below)
+                            frame = None
+
+                    if frame is not None:
+                        pil_img = PILImage.fromarray(frame)
+                        self.camera_photo = ImageTk.PhotoImage(image=pil_img)
+                        self.camera_label.configure(image=self.camera_photo, text='')
 
                     # FPS counter
                     self._cam_fps_count += 1
@@ -969,15 +1217,15 @@ class ArmControlGUI(Node):
         except Exception as e:
             self.get_logger().error(f'Camera display error: {e}')
 
-        # Schedule next refresh (~15 FPS for the display)
-        self.root.after(66, self._refresh_camera_frame)
+        # Schedule next refresh (~30 FPS for the display)
+        self.root.after(16, self._refresh_camera_frame)
 
     def _show_camera_placeholder(self, text="No Camera Feed"):
         """Show a dark placeholder image with text."""
         if self.camera_label is None or not PIL_AVAILABLE:
             return
         try:
-            img = PILImage.new('RGB', (320, 240), color=(26, 26, 26))
+            img = PILImage.new('RGB', (640, 480), color=(26, 26, 26))
             draw = ImageDraw.Draw(img)
             # Simple centered text
             try:
@@ -986,7 +1234,7 @@ class ArmControlGUI(Node):
                 font = ImageFont.load_default()
             bbox = draw.textbbox((0, 0), text, font=font)
             tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-            draw.text(((320 - tw) // 2, (240 - th) // 2), text,
+            draw.text(((640 - tw) // 2, (480 - th) // 2), text,
                       fill=(100, 100, 100), font=font)
             self.camera_photo = ImageTk.PhotoImage(image=img)
             self.camera_label.configure(image=self.camera_photo, text='')
@@ -1002,6 +1250,829 @@ class ArmControlGUI(Node):
                 threading.Thread(target=self._init_direct_camera, daemon=True).start()
         else:
             self.get_logger().info('[CAM-GUI] Camera disabled')
+
+    def _on_detect_toggle(self):
+        """Handle object detection enable/disable toggle."""
+        on = self.detect_enabled.get()
+        self.object_detector.toggle(on)
+        if on:
+            self.get_logger().info('[CAM-GUI] Object detection enabled')
+        else:
+            self.get_logger().info('[CAM-GUI] Object detection disabled')
+            if self.detect_info_label:
+                self.detect_info_label.config(text="")
+
+    # ------------------------------------------------------------------ #
+    #  Person-Following Mode                                               #
+    # ------------------------------------------------------------------ #
+    def _on_follow_toggle(self):
+        """Handle Follow checkbox toggle."""
+        on = self.follow_enabled.get()
+        if on:
+            # Ensure detector is in face mode
+            self.object_detector.set_mode('face')
+            # Auto-enable detection when Follow is turned on
+            if not self.detect_enabled.get():
+                self.detect_enabled.set(True)
+                self.object_detector.toggle(True)
+            self._follow_lost_count = 0
+            self.get_logger().info('[FOLLOW] Face-following mode ENABLED')
+            self.info_label.config(
+                text="👤 Follow mode ON — arm will track detected face",
+                fg='#00ccff'
+            )
+        else:
+            self.get_logger().info('[FOLLOW] Face-following mode DISABLED')
+            self.info_label.config(
+                text="👤 Follow mode OFF",
+                fg='#aaaaaa'
+            )
+
+    def _follow_person(self, frame_shape):
+        """Track the largest detected face by adjusting base (yaw) and shoulder (pitch).
+
+        Called from _refresh_camera_frame when follow mode is active.
+
+        The camera is mounted on the gripper (eye-in-hand). This means servo
+        corrections must account for the fact that moving a joint also moves
+        the camera.
+
+        Eye-in-hand direction mapping:
+          Base axis — increasing base rotates the whole arm (and camera) LEFT,
+            so a face on the RIGHT of frame (offset_x > 0) needs base to
+            DECREASE to swing the camera toward it.
+          Shoulder axis — increasing shoulder tilts the arm (and camera) DOWN.
+            Because the camera rides on the arm, tilting down makes the scene
+            shift UP in the image (positive feedback). So a face BELOW centre
+            (offset_y > 0) needs shoulder to DECREASE (lift arm up) to bring
+            the camera up and centre the face.  This is the OPPOSITE of a
+            fixed/base-mounted camera.
+        """
+        now = time.time()
+        if now - self._follow_last_time < self._follow_interval:
+            return
+        self._follow_last_time = now
+
+        dets = self.object_detector.detections
+        # Filter for faces
+        faces = [d for d in dets if d['class_name'] == 'face']
+        if not faces:
+            self._follow_lost_count += 1
+            if self._follow_lost_count > 25:  # ~3 s at 8 Hz
+                if self.detect_info_label:
+                    self.detect_info_label.config(
+                        text="👤 Follow: no face detected"
+                    )
+            return
+
+        self._follow_lost_count = 0
+
+        # Pick the largest face (primary target)
+        face = max(faces, key=lambda d: (d['x2'] - d['x1']) * (d['y2'] - d['y1']))
+        bbox_cx = (face['x1'] + face['x2']) / 2.0
+        bbox_cy = (face['y1'] + face['y2']) / 2.0
+
+        frame_h, frame_w = frame_shape[:2]
+
+        # Normalised offsets from image centre: [-1, +1]
+        offset_x = (bbox_cx - frame_w / 2.0) / (frame_w / 2.0)
+        offset_y = (bbox_cy - frame_h / 2.0) / (frame_h / 2.0)
+
+        # ---- Per-axis dead-zone (narrow — we *want* to re-centre) ----
+        DEAD_X = 0.05   # ~3 % of half-width
+        DEAD_Y = 0.05
+
+        moved = False
+
+        # ---- Base (yaw) — correct horizontal offset ----
+        current_base = float(self.joint_sliders[0].get())
+        if abs(offset_x) > DEAD_X:
+            BASE_GAIN = 12.0  # degrees per unit offset (responsive)
+            # Eye-in-hand: face right (offset_x > 0) → decrease base to swing camera right
+            base_delta = -offset_x * BASE_GAIN
+            new_base = max(0, min(270, current_base + base_delta))
+            self.joint_sliders[0].set(new_base)
+            self.target_positions[0] = new_base
+            moved = True
+        else:
+            new_base = current_base
+
+        # ---- Shoulder (pitch) — correct vertical offset ----
+        current_shoulder = float(self.joint_sliders[1].get())
+        if abs(offset_y) > DEAD_Y:
+            SHOULDER_GAIN = 8.0
+            # Eye-in-hand: face below centre (offset_y > 0) → DECREASE shoulder
+            # to lift arm/camera up, centering the face.
+            shoulder_delta = -offset_y * SHOULDER_GAIN
+            new_shoulder = max(0, min(180, current_shoulder + shoulder_delta))
+            self.joint_sliders[1].set(new_shoulder)
+            self.target_positions[1] = new_shoulder
+            moved = True
+        else:
+            new_shoulder = current_shoulder
+
+        if moved:
+            # Update 3D visualisation
+            if self.viz_3d:
+                self.viz_3d.set_joint_angles(self.target_positions)
+            self.send_command()
+
+        if self.detect_info_label:
+            arrow  = "→" if offset_x >  DEAD_X else ("←" if offset_x < -DEAD_X else "·")
+            v_arrow = "↓" if offset_y >  DEAD_Y else ("↑" if offset_y < -DEAD_Y else "·")
+            status = "centred" if not moved else f"{arrow}{v_arrow}"
+            self.detect_info_label.config(
+                text=f"👤 Face {status}  base={new_base:.0f}°"
+                     f"  shoulder={new_shoulder:.0f}°"
+                     f"  off=({offset_x:+.2f},{offset_y:+.2f})"
+            )
+
+    # ------------------------------------------------------------------ #
+    #  Handshake Mode                                                      #
+    # ------------------------------------------------------------------ #
+
+    # Relative offsets from the default (center) pose for each handshake motion.
+    # Format: {joint_index: delta_degrees}
+    #   0=base, 1=shoulder, 2=elbow, 3=forearm, 4=wrist_rotate, 5=gripper
+    #
+    # The sequence is:
+    #   1. Close gripper (lean forward + grip)
+    #   2. Slap right (base rotates right) → return to center
+    #   3. Slap left  (base rotates left)  → return to center
+    #   4. Knuckle up (shoulder lifts)     → return to center
+    #   5. Knuckle down (shoulder drops)   → return to center
+    _HS_LEAN_FORWARD = {1: -15.0, 2: +25.0}              # lean elbow toward person (no grip yet)
+    _HS_SLAP_RIGHT   = {0: -30.0}                         # base rotates right
+    _HS_SLAP_LEFT    = {0: +30.0}                          # base rotates left
+    _HS_KNUCKLE_UP   = {1: -25.0}                          # shoulder lifts arm up
+    _HS_KNUCKLE_DOWN = {1: +25.0}                          # shoulder drops arm down
+
+    # Ordered sequence: (label, delta_dict)
+    # Each motion plays out then returns to center before the next.
+    _HANDSHAKE_SEQUENCE = [
+        ('slap_right',   _HS_SLAP_RIGHT),
+        ('slap_left',    _HS_SLAP_LEFT),
+        ('knuckle_up',   _HS_KNUCKLE_UP),
+        ('knuckle_down', _HS_KNUCKLE_DOWN),
+    ]
+
+    _HANDSHAKE_PAUSE_MS = 1500   # pause between motions (ms)
+    _HANDSHAKE_STEPS    = 20     # interpolation steps per motion
+    _HANDSHAKE_STEP_MS  = 40     # ms between interpolation steps (~0.8 s per motion)
+
+    def _on_handshake_toggle(self):
+        """Handle the 🤝 Handshake checkbox toggle."""
+        on = self.handshake_enabled.get()
+        if on:
+            # Auto-enable camera and detection
+            if not self.camera_enabled.get():
+                self.camera_enabled.set(True)
+                self._on_camera_toggle()
+            if not self.detect_enabled.get():
+                self.detect_enabled.set(True)
+                self.object_detector.toggle(True)
+            # Disable follow and visual servo to avoid conflicts
+            if self.follow_enabled.get():
+                self.follow_enabled.set(False)
+                self._on_follow_toggle()
+            if self.visual_servo_enabled.get():
+                self.visual_servo_enabled.set(False)
+                self._on_visual_servo_toggle()
+
+            self._handshake_detect_count = 0
+            self._handshake_cancelled = False
+            self.get_logger().info('[HANDSHAKE] Mode ENABLED — waiting for person')
+            self.info_label.config(
+                text="\U0001F91D Handshake mode ON — show your face to start",
+                fg='#ffcc00'
+            )
+        else:
+            self.get_logger().info('[HANDSHAKE] Mode DISABLED')
+            if self._handshake_in_progress:
+                self._handshake_cancelled = True
+                self.get_logger().info('[HANDSHAKE] Cancelling in-progress sequence')
+            self._handshake_detect_count = 0
+            self.info_label.config(
+                text="\U0001F91D Handshake mode OFF",
+                fg='#aaaaaa'
+            )
+
+    def _handshake_apply_delta(self, delta_dict):
+        """Build a full 6-joint target by applying delta offsets to the lean pose.
+
+        The lean pose is the captured base angles + forward lean, which is the
+        neutral position for all handshake motions.  Each step only changes
+        the joints listed in *delta_dict* relative to that lean pose.
+        """
+        # Joint limits: base 0-270, others 0-180
+        limits = [270.0, 180.0, 180.0, 180.0, 180.0, 180.0]
+        target = list(self._handshake_lean_pose)
+        for idx, delta in delta_dict.items():
+            target[idx] = max(0.0, min(limits[idx], target[idx] + delta))
+        return target
+
+    def _start_handshake(self):
+        """Begin the handshake sequence from the current arm position."""
+        self._handshake_in_progress = True
+        self._handshake_cancelled = False
+
+        # Snapshot current motor angles as the base pose
+        self._handshake_home_pose = [float(self.joint_sliders[i].get()) for i in range(6)]
+
+        # Correct base toward the detected face
+        self._handshake_home_pose[0] = self._handshake_base
+
+        # Lean pose = home + forward lean (shoulder down, elbow out) — gripper stays as-is for now
+        limits = [245.0, 180.0, 180.0, 180.0, 180.0, 180.0]
+        self._handshake_lean_pose = list(self._handshake_home_pose)
+        for idx, delta in self._HS_LEAN_FORWARD.items():
+            self._handshake_lean_pose[idx] = max(
+                0.0, min(limits[idx], self._handshake_lean_pose[idx] + delta)
+            )
+
+        # Disable follow/servo during sequence
+        if self.follow_enabled.get():
+            self.follow_enabled.set(False)
+        if self.visual_servo_enabled.get():
+            self.visual_servo_enabled.set(False)
+
+        self.get_logger().info('[HANDSHAKE] Person detected — closing gripper')
+        self.info_label.config(
+            text="\U0001F91D Closing gripper...",
+            fg='#ffcc00'
+        )
+
+        # Set a moderate speed
+        self.speed_value.set(50)
+        speed_msg = Float32()
+        speed_msg.data = 50.0
+        self.speed_pub.publish(speed_msg)
+
+        # Step 1: Close the gripper first (from current position, only change gripper)
+        grip_pose = list(self._handshake_home_pose)
+        grip_pose[5] = min(180.0, grip_pose[5] + 40.0)  # close gripper
+        self._handshake_lean_pose[5] = grip_pose[5]      # remember closed grip for lean pose
+
+        self._handshake_interpolate(
+            grip_pose,
+            on_complete=lambda: self.root.after(500, self._handshake_lean_then_go)
+        )
+
+    def _handshake_lean_then_go(self):
+        """Step 2: Lean forward to ready position, then start the 4-motion sequence."""
+        if self._handshake_cancelled:
+            self._handshake_finish_cancelled()
+            return
+
+        self.get_logger().info('[HANDSHAKE] Leaning forward to ready position')
+        self.info_label.config(
+            text="\U0001F91D Moving to ready position...",
+            fg='#ffcc00'
+        )
+        self._handshake_interpolate(
+            self._handshake_lean_pose,
+            on_complete=lambda: self.root.after(
+                self._HANDSHAKE_PAUSE_MS,
+                lambda: self._handshake_step(0)
+            )
+        )
+
+    def _handshake_step(self, index):
+        """Execute step `index` of the handshake sequence.
+
+        Each step: move to the offset pose, pause, return to center, pause,
+        then proceed to the next step.
+        """
+        if self._handshake_cancelled:
+            self._handshake_finish_cancelled()
+            return
+
+        if index >= len(self._HANDSHAKE_SEQUENCE):
+            # All motions done — return to the pose we started from
+            self.get_logger().info('[HANDSHAKE] Sequence complete — returning home')
+            self.info_label.config(
+                text="\U0001F91D Handshake done! Returning home...",
+                fg='#00ff00'
+            )
+            self._handshake_interpolate(
+                self._handshake_home_pose,
+                on_complete=self._handshake_finish
+            )
+            return
+
+        label, delta = self._HANDSHAKE_SEQUENCE[index]
+        target = self._handshake_apply_delta(delta)
+        step_num = index + 1
+        total = len(self._HANDSHAKE_SEQUENCE)
+        self.get_logger().info(f'[HANDSHAKE] Step {step_num}/{total}: {label}')
+        self.info_label.config(
+            text=f"\U0001F91D Step {step_num}/{total}: {label.replace('_', ' ')}",
+            fg='#ffcc00'
+        )
+
+        # Move to offset pose, then return to center, then next step
+        self._handshake_interpolate(
+            list(target),
+            on_complete=lambda: self.root.after(
+                self._HANDSHAKE_PAUSE_MS,
+                lambda: self._handshake_return_center(index)
+            )
+        )
+
+    def _handshake_return_center(self, index):
+        """Return to center (lean pose) after a handshake motion, then advance."""
+        if self._handshake_cancelled:
+            self._handshake_finish_cancelled()
+            return
+
+        self.info_label.config(
+            text="\U0001F91D Returning to center...",
+            fg='#ffcc00'
+        )
+        self._handshake_interpolate(
+            self._handshake_lean_pose,
+            on_complete=lambda: self.root.after(
+                self._HANDSHAKE_PAUSE_MS,
+                lambda: self._handshake_step(index + 1)
+            )
+        )
+
+    def _handshake_interpolate(self, target_angles, on_complete=None):
+        """Smoothly interpolate to target_angles, then call on_complete."""
+        start_angles = [float(self.joint_sliders[i].get()) for i in range(6)]
+        steps = self._HANDSHAKE_STEPS
+        delay = self._HANDSHAKE_STEP_MS
+        increments = [(t - s) / steps for s, t in zip(start_angles, target_angles)]
+
+        def _step(n):
+            if self._handshake_cancelled:
+                self._handshake_finish_cancelled()
+                return
+
+            if n >= steps:
+                # Final: snap to exact target
+                for i, angle in enumerate(target_angles):
+                    self.joint_sliders[i].set(angle)
+                    self.target_positions[i] = angle
+                if self.viz_3d:
+                    self.viz_3d.set_joint_angles(self.target_positions)
+                self.send_command()
+                if on_complete:
+                    on_complete()
+                return
+
+            for i in range(6):
+                val = start_angles[i] + increments[i] * n
+                self.joint_sliders[i].set(val)
+                self.target_positions[i] = val
+            self.send_command()
+
+            self.root.after(delay, lambda: _step(n + 1))
+
+        _step(0)
+
+    def _handshake_finish(self):
+        """Clean up after a completed handshake sequence."""
+        self._handshake_in_progress = False
+        self._handshake_detect_count = 0
+        self.get_logger().info('[HANDSHAKE] Ready for next person')
+        self.info_label.config(
+            text="\U0001F91D Handshake complete! Waiting for next person...",
+            fg='#00ff00'
+        )
+
+    def _handshake_finish_cancelled(self):
+        """Clean up after a cancelled handshake — return to home."""
+        self.get_logger().info('[HANDSHAKE] Cancelled — returning home')
+        self.info_label.config(
+            text="\U0001F91D Cancelled — returning home...",
+            fg='#ff8800'
+        )
+        self._handshake_cancelled = False  # prevent re-entry
+
+        def _go_home():
+            start = [float(self.joint_sliders[i].get()) for i in range(6)]
+            home = getattr(self, '_handshake_home_pose',
+                           [90.0, 100.0, 100.0, 80.0, 90.0, 120.0])
+            steps = self._HANDSHAKE_STEPS
+            inc = [(h - s) / steps for s, h in zip(start, home)]
+
+            def _s(n):
+                if n >= steps:
+                    for i, a in enumerate(home):
+                        self.joint_sliders[i].set(a)
+                        self.target_positions[i] = a
+                    if self.viz_3d:
+                        self.viz_3d.set_joint_angles(self.target_positions)
+                    self.send_command()
+                    self._handshake_in_progress = False
+                    self._handshake_detect_count = 0
+                    self.info_label.config(
+                        text="\U0001F91D Handshake mode ON — show your face to start",
+                        fg='#ffcc00'
+                    )
+                    return
+                for i in range(6):
+                    self.joint_sliders[i].set(start[i] + inc[i] * n)
+                    self.target_positions[i] = start[i] + inc[i] * n
+                self.send_command()
+                self.root.after(self._HANDSHAKE_STEP_MS, lambda: _s(n + 1))
+
+            _s(0)
+
+        _go_home()
+
+    # ------------------------------------------------------------------ #
+    #  Bartender Mode                                                      #
+    # ------------------------------------------------------------------ #
+
+    # Bartender sequence poses (absolute angles — NOT deltas)
+    # Sequence: detect cup → reach toward cup → close gripper → lift →
+    #           tilt pour → upright → lower → open gripper → home
+    _BART_PAUSE_MS   = 600
+    _BART_STEPS      = 25
+    _BART_STEP_MS    = 18
+
+    def _on_bartender_toggle(self):
+        """Handle the 🥃 Bartender checkbox toggle."""
+        on = self.bartender_enabled.get()
+        if on:
+            if not self.object_detector.cup_detection_available:
+                self.get_logger().warn('[BARTENDER] No YOLOv8n ONNX model — cannot detect cups')
+                self.info_label.config(
+                    text="\U0001F943 YOLO model not found — place yolov8n.onnx in workspace",
+                    fg='#ff4444'
+                )
+                self.bartender_enabled.set(False)
+                return
+
+            # Auto-enable camera & detection in cup mode
+            if not self.camera_enabled.get():
+                self.camera_enabled.set(True)
+                self._on_camera_toggle()
+            if not self.detect_enabled.get():
+                self.detect_enabled.set(True)
+            self.object_detector.set_mode('cup')
+            self.object_detector.toggle(True)
+
+            # Disable conflicting modes
+            if self.follow_enabled.get():
+                self.follow_enabled.set(False)
+                self._on_follow_toggle()
+            if self.visual_servo_enabled.get():
+                self.visual_servo_enabled.set(False)
+                self._on_visual_servo_toggle()
+            if self.handshake_enabled.get():
+                self.handshake_enabled.set(False)
+                self._on_handshake_toggle()
+
+            self._bartender_detect_count = 0
+            self._bartender_cancelled = False
+            self._bartender_cup = None
+            self.get_logger().info('[BARTENDER] Mode ENABLED — looking for cups')
+            self.info_label.config(
+                text="\U0001F943 Bartender mode ON — place a cup in view",
+                fg='#32ff7e'
+            )
+        else:
+            self.get_logger().info('[BARTENDER] Mode DISABLED')
+            if self._bartender_in_progress:
+                self._bartender_cancelled = True
+            self._bartender_detect_count = 0
+            self.object_detector.set_mode('face')  # restore face mode
+            self.info_label.config(
+                text="\U0001F943 Bartender mode OFF",
+                fg='#aaaaaa'
+            )
+
+    def _bartender_check_cup(self, dets):
+        """Check for cup detections and trigger bartender sequence."""
+        if self._bartender_in_progress or not self.bartender_enabled.get():
+            return
+
+        cups = [d for d in dets if d.get('class_name') in ('cup', 'wine glass', 'bottle')]
+        if cups:
+            self._bartender_detect_count += 1
+            self._bartender_cup = max(cups, key=lambda d: (d['x2'] - d['x1']) * (d['y2'] - d['y1']))
+            if self._bartender_detect_count >= self._bartender_detect_threshold:
+                self.get_logger().info(f'[BARTENDER] Cup detected! Starting sequence')
+                self._start_bartender()
+                self._bartender_detect_count = 0
+        else:
+            self._bartender_detect_count = 0
+
+    def _start_bartender(self):
+        """Begin the bartender sequence — reach, grab, lift, pour, return."""
+        self._bartender_in_progress = True
+        self._bartender_cancelled = False
+
+        # Capture current pose as home
+        self._bart_home = [float(self.joint_sliders[i].get()) for i in range(6)]
+
+        # Estimate base angle from cup position in frame
+        cup = self._bartender_cup
+        if cup and hasattr(self, 'camera_label'):
+            frame_w = 640  # camera frame width
+            cup_cx = (cup['x1'] + cup['x2']) / 2.0
+            offset_x = (cup_cx - frame_w / 2.0) / (frame_w / 2.0)  # -1..+1
+            base_now = float(self.joint_sliders[0].get())
+            # Eye-in-hand: negative mapping
+            self._bart_base = max(0, min(270, base_now - offset_x * 15.0))
+        else:
+            self._bart_base = float(self.joint_sliders[0].get())
+
+        # Build the sequence of absolute poses
+        b = self._bart_base
+        self._bart_sequence = [
+            # (label, [base, shoulder, elbow, forearm, wrist, gripper])
+            ('open_gripper',  [b, self._bart_home[1], self._bart_home[2],
+                               self._bart_home[3], self._bart_home[4], 30.0]),
+            ('reach_down',    [b, 60.0, 140.0, 90.0, 90.0, 30.0]),
+            ('close_gripper', [b, 60.0, 140.0, 90.0, 90.0, 140.0]),
+            ('lift_cup',      [b, 100.0, 90.0, 80.0, 90.0, 140.0]),
+            ('tilt_pour',     [b, 100.0, 90.0, 80.0, 40.0, 140.0]),
+            ('hold_pour',     None),  # pause only
+            ('upright',       [b, 100.0, 90.0, 80.0, 90.0, 140.0]),
+            ('lower_cup',     [b, 60.0, 140.0, 90.0, 90.0, 140.0]),
+            ('release',       [b, 60.0, 140.0, 90.0, 90.0, 30.0]),
+            ('home',          self._bart_home),
+        ]
+
+        self._bartender_step(0)
+
+    def _bartender_step(self, idx):
+        """Execute step `idx` of the bartender sequence."""
+        if self._bartender_cancelled:
+            self._bartender_finish_cancel()
+            return
+
+        if idx >= len(self._bart_sequence):
+            self._bartender_finish()
+            return
+
+        label, target = self._bart_sequence[idx]
+        step_num = idx + 1
+        total = len(self._bart_sequence)
+        self.get_logger().info(f'[BARTENDER] Step {step_num}/{total}: {label}')
+        self.info_label.config(
+            text=f"\U0001F943 Step {step_num}/{total}: {label.replace('_', ' ')}",
+            fg='#32ff7e'
+        )
+
+        if target is None:
+            # Pause-only step (e.g. hold pour)
+            self.root.after(1500, lambda: self._bartender_step(idx + 1))
+            return
+
+        self._bartender_interpolate(
+            target,
+            on_complete=lambda: self.root.after(
+                self._BART_PAUSE_MS,
+                lambda: self._bartender_step(idx + 1)
+            )
+        )
+
+    def _bartender_interpolate(self, target_angles, on_complete=None):
+        """Smooth interpolation for bartender moves."""
+        start = [float(self.joint_sliders[i].get()) for i in range(6)]
+        steps = self._BART_STEPS
+        delay = self._BART_STEP_MS
+        inc = [(t - s) / steps for s, t in zip(start, target_angles)]
+
+        def _s(n):
+            if self._bartender_cancelled:
+                self._bartender_finish_cancel()
+                return
+            if n >= steps:
+                for i, a in enumerate(target_angles):
+                    self.joint_sliders[i].set(a)
+                    self.target_positions[i] = a
+                if self.viz_3d:
+                    self.viz_3d.set_joint_angles(self.target_positions)
+                self.send_command()
+                if on_complete:
+                    on_complete()
+                return
+            for i in range(6):
+                val = start[i] + inc[i] * n
+                self.joint_sliders[i].set(val)
+                self.target_positions[i] = val
+            self.send_command()
+            self.root.after(delay, lambda: _s(n + 1))
+
+        _s(0)
+
+    def _bartender_finish(self):
+        """Clean up after completed bartender sequence."""
+        self._bartender_in_progress = False
+        self._bartender_detect_count = 0
+        self._bartender_cup = None
+        self.get_logger().info('[BARTENDER] Sequence complete — ready for next cup')
+        self.info_label.config(
+            text="\U0001F943 Done! Place another cup to pour again...",
+            fg='#32ff7e'
+        )
+
+    def _bartender_finish_cancel(self):
+        """Clean up after cancelled bartender — go home."""
+        self.get_logger().info('[BARTENDER] Cancelled — returning home')
+        self.info_label.config(text="\U0001F943 Cancelled", fg='#ff8800')
+        self._bartender_cancelled = False
+        home = getattr(self, '_bart_home', [90.0, 90.0, 90.0, 90.0, 90.0, 90.0])
+        self._bartender_interpolate(home, on_complete=lambda: setattr(self, '_bartender_in_progress', False))
+
+    # ------------------------------------------------------------------ #
+    #  Eye-in-Hand Visual Servoing                                         #
+    # ------------------------------------------------------------------ #
+    def _on_visual_servo_toggle(self):
+        """Handle the 👁 Servo checkbox."""
+        on = self.visual_servo_enabled.get()
+        if on:
+            # Initialise the flying target from current FK position
+            fk = self.forward_kinematics(
+                self.target_positions[0], self.target_positions[1],
+                self.target_positions[2], self.target_positions[3],
+                self.target_positions[4],
+            )
+            self._vs_target = [fk[0], fk[1], fk[2]]
+            self._vs_last_error = Vector3()
+
+            # Auto-enable auto-follow so send_command() fires immediately
+            if not self.auto_follow_active.get():
+                self.toggle_auto_follow()
+
+            self.get_logger().info(
+                f'[VS] Visual servoing ENABLED — initial target '
+                f'({fk[0]:.3f}, {fk[1]:.3f}, {fk[2]:.3f})'
+            )
+            self.info_label.config(
+                text="👁 Visual servoing ON — arm follows face via /vision/error",
+                fg='#ff66ff'
+            )
+            # Kick off the periodic servoing loop
+            self.root.after(int(self._vs_interval * 1000), self._vs_tick)
+        else:
+            self._vs_target = None
+            self.get_logger().info('[VS] Visual servoing DISABLED')
+            self.info_label.config(text="👁 Visual servoing OFF", fg='#aaaaaa')
+
+    def _vision_error_callback(self, msg: Vector3):
+        """ROS2 callback: store the latest error from /vision/error."""
+        self._vs_last_error = msg
+        self._vs_error_fresh = True
+
+    def _get_ee_rotation_matrix(self):
+        """Return the 3×3 rotation matrix R_ee (base ← camera frame).
+
+        The camera is mounted on the end-effector (eye-in-hand), so its
+        optical axis is aligned with the gripper.  We reconstruct R_ee
+        from the current joint angles using FK conventions:
+
+        * **z_ee** (camera optical axis) = direction the gripper points.
+        * **x_ee** = perpendicular in the base XY plane (→ camera "right").
+        * **y_ee** = z_ee × x_ee (→ camera "up").
+
+        All vectors are expressed in the **base frame**.
+        """
+        base = self.target_positions[0]
+        shoulder = self.target_positions[1]
+        elbow = self.target_positions[2]
+        forearm = self.target_positions[3]
+
+        base_rad = math.radians(base - 90.0)
+        shoulder_rad = math.radians(90.0 - shoulder)
+        elbow_rad = math.radians(90.0 - elbow)
+        forearm_rad = math.radians(90.0 - forearm)   # INVERTED (matches FK)
+
+        # Cumulative pitch angle of the gripper (from vertical)
+        pitch = shoulder_rad + elbow_rad + forearm_rad
+
+        # z_ee: direction the gripper/camera is pointing (in base frame)
+        #   pitch = 0 → straight up  (sin=0, cos=1)
+        #   pitch = π/2 → horizontal  (sin=1, cos=0)
+        z_ee = np.array([
+            math.sin(pitch) * math.cos(base_rad),
+            math.sin(pitch) * math.sin(base_rad),
+            math.cos(pitch),
+        ])
+
+        # x_ee: "camera right" — perpendicular to z_ee in the base XY plane
+        # When the camera looks along z_ee, its "right" is the base-frame
+        # direction perpendicular to the radial arm direction in XY.
+        x_ee = np.array([
+            -math.sin(base_rad),
+             math.cos(base_rad),
+             0.0,
+        ])
+
+        # y_ee: "camera up" = z_ee × x_ee  (right-hand rule)
+        y_ee = np.cross(z_ee, x_ee)
+        y_norm = np.linalg.norm(y_ee)
+        if y_norm > 1e-6:
+            y_ee /= y_norm
+        else:
+            # Degenerate (looking straight up/down) — use world Y as fallback
+            y_ee = np.array([0.0, 1.0, 0.0])
+
+        # R_ee columns: [x_ee | y_ee | z_ee]
+        R = np.column_stack([x_ee, y_ee, z_ee])
+        return R
+
+    def _vs_tick(self):
+        """Periodic visual-servoing update (runs on the Tkinter thread).
+
+        1. Read the latest /vision/error.
+        2. Transform camera-frame error → base-frame correction.
+        3. Cap the step size so the target only nudges a tiny amount.
+        4. Try IK — if it fails, roll back the target (don't let it drift
+           into unreachable space).
+        5. Reschedule itself.
+        """
+        if not self.visual_servo_enabled.get() or self._vs_target is None:
+            return  # stop the loop
+
+        err = self._vs_last_error
+
+        # Only act when a fresh error has arrived from the vision node.
+        # Without a running vision_error_publisher, the arm simply holds.
+        if not self._vs_error_fresh:
+            self.root.after(int(self._vs_interval * 1000), self._vs_tick)
+            return
+        self._vs_error_fresh = False
+
+        # Dead-zone — hold position if the error is tiny
+        if abs(err.x) < 0.08 and abs(err.y) < 0.08 and abs(err.z) < 0.008:
+            self.root.after(int(self._vs_interval * 1000), self._vs_tick)
+            return
+
+        # Build the error vector in Camera Frame: (right, up, forward)
+        # Negate x/y so the arm chases the face (moves toward the error)
+        # rather than fleeing from it.
+        V_cam = np.array([
+            -err.x * self._vs_gain_xy,   # camera-right (negated to chase)
+            -err.y * self._vs_gain_xy,   # camera-up    (negated to chase)
+             err.z * self._vs_gain_z,    # camera-forward (depth — keep sign)
+        ])
+
+        # Transform to Base Frame:  V_base = R_ee @ V_cam
+        R_ee = self._get_ee_rotation_matrix()
+        V_base = R_ee @ V_cam
+
+        # ---- Velocity cap: limit the step to _vs_max_step metres ----
+        step_len = float(np.linalg.norm(V_base))
+        if step_len > self._vs_max_step:
+            V_base = V_base * (self._vs_max_step / step_len)
+
+        # Propose a new target
+        prev_target = list(self._vs_target)  # keep copy for rollback
+        new_x = self._vs_target[0] + V_base[0]
+        new_y = self._vs_target[1] + V_base[1]
+        new_z = self._vs_target[2] + V_base[2]
+
+        # Clamp to reachable workspace (metres)
+        max_r = 0.40   # max radial reach
+        r_xy = math.sqrt(new_x**2 + new_y**2)
+        if r_xy > max_r:
+            scale = max_r / r_xy
+            new_x *= scale
+            new_y *= scale
+        new_z = max(0.0, min(0.45, new_z))
+
+        # Try IK at the proposed target
+        trial_ik = self.custom_ik_solver.solve_ik_to_point(
+            new_x, new_y, new_z, roll=0, seed_state={
+                'base': self.target_positions[0],
+                'shoulder': self.target_positions[1],
+                'elbow': self.target_positions[2],
+                'forearm': self.target_positions[3],
+                'wrist': self.target_positions[4],
+            }
+        )
+
+        if trial_ik is None:
+            # Unreachable — roll back, don't drift outward
+            self._vs_target = prev_target
+            self.root.after(int(self._vs_interval * 1000), self._vs_tick)
+            return
+
+        # IK succeeded — accept the new target
+        self._vs_target = [new_x, new_y, new_z]
+
+        # Drive the arm via the existing on_3d_target_move pipeline
+        self.on_3d_target_move(new_x, new_y, new_z)
+
+        # Update 3D viz target marker
+        if self.viz_3d:
+            self.viz_3d.set_target(new_x, new_y, new_z)
+
+        self.info_label.config(
+            text=f"👁 VS target ({new_x*1000:.0f}, {new_y*1000:.0f}, "
+                 f"{new_z*1000:.0f}) mm  err=({err.x:.2f},{err.y:.2f},{err.z:.3f})",
+            fg='#ff66ff'
+        )
+
+        # Reschedule
+        self.root.after(int(self._vs_interval * 1000), self._vs_tick)
 
     def _camera_snapshot(self):
         """Save the current camera frame to a file."""
@@ -1303,7 +2374,8 @@ class ArmControlGUI(Node):
         target_angles = [0.0] * 6
         for ik_joint, gui_idx in ik_to_gui_mapping.items():
             angle = joint_angles[ik_joint]
-            angle = max(0, min(180, angle))
+            hi = 270 if gui_idx == 0 else 180
+            angle = max(0, min(hi, angle))
             target_angles[gui_idx] = angle
 
         # Keep whatever gripper angle the user has set — IK only
@@ -1529,11 +2601,11 @@ class ArmControlGUI(Node):
             msg = Bool()
             msg.data = self.estop_active
             self.estop_pub.publish(msg)
-            
+            Elbow
             if self.estop_active:
                 self.info_label.config(text="⛔ EMERGENCY STOP ACTIVE - All outputs DISABLED!", fg='#ff0000')
                 self.get_logger().warning("Emergency stop ACTIVATED - OE pin HIGH")
-                
+                Elbow
                 messagebox.showwarning(
                     "Emergency Stop ACTIVATED",
                     "All servo outputs DISABLED!\n\nPress Emergency Stop again to release."
@@ -1605,11 +2677,12 @@ class ArmControlGUI(Node):
                 'gripper': 5    # J6
             }
             
-            # Build target angle list and clamp to 0-180
+            # Build target angle list and clamp to servo limits
             target_angles = [0.0] * 6
             for ik_joint, gui_idx in ik_to_gui_mapping.items():
                 angle = joint_angles[ik_joint]
-                angle = max(0, min(180, angle))
+                hi = 270 if gui_idx == 0 else 180
+                angle = max(0, min(hi, angle))
                 target_angles[gui_idx] = angle
 
             # Keep whatever gripper angle the user has set — IK only

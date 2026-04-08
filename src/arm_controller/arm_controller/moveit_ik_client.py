@@ -300,7 +300,7 @@ class MoveItIKClient:
         base_rad = math.radians(base - 90.0)
         shoulder_rad = math.radians(90.0 - shoulder)  # Inverted
         elbow_rad = math.radians(90.0 - elbow)  # Inverted
-        forearm_rad = math.radians(forearm - 90.0)
+        forearm_rad = math.radians(90.0 - forearm)  # INVERTED (matches IK encode)
         
         # Calculate positions using vertical-based system (matching Tkinter)
         elbow_x = L_upper * math.sin(shoulder_rad)

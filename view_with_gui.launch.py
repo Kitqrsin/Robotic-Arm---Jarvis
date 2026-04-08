@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Launch file for RViz with GUI control, MoveIt kinematics (optional), and Interactive IK Marker
-Uses the arm_gui with 3D visualization and MoveIt for accurate IK control (if available)
+Launch file for GUI control, MoveIt kinematics (optional), and camera feed.
+RViz is disabled — the TKinter GUI provides its own 3D visualization.
 """
 import os
 import yaml
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, LogInfo
-from launch.substitutions import LaunchConfiguration, Command
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
@@ -28,8 +28,19 @@ def generate_launch_description():
     with open(urdf_file, 'r') as f:
         robot_description = f.read()
     
+    # Check if host-side camera stream is running (shared JPEG file)
+    camera_frame = '/workspace/.camera_frame.jpg'
+    camera_hint = []
+    if not os.path.isfile(camera_frame):
+        camera_hint.append(
+            LogInfo(msg=(
+                '⚠  Camera: No shared frame file found. '
+                'Run on the HOST (outside Docker): ./camera_stream.sh start'
+            ))
+        )
+    
     # Base nodes (always launched)
-    nodes = [
+    nodes = camera_hint + [
         # Robot State Publisher - converts joint_states to TF
         Node(
             package='robot_state_publisher',
@@ -42,16 +53,8 @@ def generate_launch_description():
             }]
         ),
         
-        # RViz2 for visualization
-        Node(
-            package='rviz2',
-            executable='rviz2',
-            name='rviz2',
-            output='screen',
-            arguments=['-d', '/workspace/robot.rviz']
-        ),
-        
         # Arm GUI Controller with 3D visualization and camera feed
+        # (RViz disabled — the TKinter GUI provides its own 3D view)
         Node(
             package='arm_controller',
             executable='arm_gui',

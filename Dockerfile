@@ -34,7 +34,9 @@ RUN pip3 install --no-cache-dir \
     "isort>=5.13" \
     "ruff>=0.1.0" \
     opencv-python-headless \
-    ultralytics
+    ultralytics \
+    moveit-commander \
+    py_trees
 
 # Install picamera2 (optional — works only on Raspberry Pi OS with libcamera)
 # Falls back to OpenCV if libcamera is not available at runtime

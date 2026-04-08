@@ -1,14 +1,24 @@
 moveit_simple_controller_manager:
   controller_names:
     - arm_controller
+    - gripper_controller
 
   arm_controller:
     type: FollowJointTrajectory
     action_ns: follow_joint_trajectory
     default: true
     joints:
-      - base
-      - shoulder
-      - elbow
-      - wrist
-      - wrist_rotate
+      - joint_1
+      - joint_2
+      - joint_3
+      - joint_4
+      - joint_5
+      - joint_6
+
+  gripper_controller:
+    type: GripperCommand
+    action_ns: gripper_command
+    default: true
+    joints:
+      - gripper_joint # Replace with your actual gripper joint name
+

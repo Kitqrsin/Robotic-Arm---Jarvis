@@ -32,15 +32,15 @@ class Arm3DVisualization:
         self.on_target_move = on_target_move_callback
         
         # Canvas dimensions
-        self.canvas_width = 400
-        self.canvas_height = 350
+        self.canvas_width = 500
+        self.canvas_height = 420
         
         # View parameters
         self.view_azimuth = 45  # Degrees around vertical axis
         self.view_elevation = 25  # Degrees above horizontal
-        self.zoom = 650  # Pixels per meter (reduced from 800 for larger workspace)
+        self.zoom = 550  # Pixels per meter (lower = wider FOV)
         self.center_offset_x = self.canvas_width // 2
-        self.center_offset_y = self.canvas_height - 50
+        self.center_offset_y = self.canvas_height - 60
         
         # Target position (meters)
         # Increased for 5-joint arm with extended reach
@@ -375,10 +375,9 @@ class Arm3DVisualization:
         # Elbow: INVERTED to match RViz (90.0 - pos)
         elbow_rad = math.radians(90.0 - elbow)
         
-        # Forearm/Wrist pitch - INVERTED for display to match RViz
-        # Hardware uses normal convention, but RViz display inverts it
-        # So Tkinter must also invert for visual consistency
-        forearm_rad = -math.radians(forearm - 90.0)
+        # Forearm/Wrist pitch - INVERTED (matches IK encode: f_deg = 90 - deg(rad))
+        # Must decode the same way as shoulder/elbow for correct FK round-trip
+        forearm_rad = math.radians(90.0 - forearm)
         
         # Link lengths from URDF joint origin xyz values (in meters)
         # Measured from robot_fixed.urdf joint definitions:

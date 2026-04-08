@@ -2,6 +2,7 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Float32MultiArray, Float32, Bool
 import time
+import threading
 
 # We use a try-except block here so the node doesn't crash if hardware isn't plugged in yet
 try:
@@ -30,6 +31,11 @@ class ArmServoNode(Node):
         # 100 = instant, 1 = very slow
         self.speed = 50.0  # Default medium speed
         self.step_delay = 0.01  # Delay between interpolation steps (10ms)
+        
+        # Command deduplication: prevents stale queued callbacks from
+        # replaying old movements after smooth_move finishes
+        self._command_version = 0
+        self._move_lock = threading.Lock()
         
         # ============================================================
         # SERVO CHANNEL MAPPING - ADJUST THIS TO MATCH YOUR WIRING
@@ -70,6 +76,28 @@ class ArmServoNode(Node):
             if ServoKit:
                 # address=0x40 is standard. On Pi 5, ensures correct I2C bus.
                 self.kit = ServoKit(channels=16)
+                
+                # ============================================================
+                # SERVO ACTUATION RANGES
+                # ============================================================
+                # Set correct actuation range per channel.
+                # Base servo (channel 0) is a 270° servo.
+                # All other servos are standard 180° servos.
+                # Mismatched ranges cause the PWM signal to be wrong,
+                # leading to jitter / oscillation.
+                self.kit.servo[self.channel_map[0]].actuation_range = 270
+                for i in range(1, 6):
+                    self.kit.servo[self.channel_map[i]].actuation_range = 180
+                
+                # Pulse-width ranges must match the physical servos.
+                # Default Adafruit range (750–2250 µs) is wider than
+                # these servos accept, causing jitter / drift under
+                # load (especially the forearm joint).
+                for i in range(6):
+                    channel = self.channel_map[i]
+                    self.kit.servo[channel].set_pulse_width_range(1000, 2000)
+                # ============================================================
+                
                 self.get_logger().info("PCA9685 Servo Driver Connected!")
                 self.get_logger().info(f"Channel mapping: {self.channel_map}")
                 self.get_logger().info(f"Inverted joints: {[i for i, inv in enumerate(self.invert_direction) if inv]}")
@@ -165,20 +193,36 @@ class ArmServoNode(Node):
         max_distance = max(abs(s - target) for s in start_angles)
         
         if max_distance < 1.0:
-            # Already at home — just write 90° to be sure and return
+            # Already at home — just write target hardware angle to be sure and return
             for i in range(6):
                 channel = self.channel_map[i]
-                self.kit.servo[channel].angle = target
+                hw = (180.0 - target) if self.invert_direction[i] else target
+                self.kit.servo[channel].angle = hw
+                time.sleep(0.005)  # Small gap between I2C writes
             self.current_angles = [target] * 6
             self.get_logger().info("Servos already at home position (90°)")
             return
         
+        # Compute TARGET hardware angles (what PCA9685 should physically output)
+        # start_angles[] are hardware readings; we must stay in hardware space.
+        target_hw = []
+        for i in range(6):
+            if self.invert_direction[i]:
+                target_hw.append(180.0 - target)
+            else:
+                target_hw.append(target)
+
         self.get_logger().info(
-            f"Ramping from {[f'{a:.0f}' for a in start_angles]} → 90° "
+            f"Ramping from {[f'{a:.0f}' for a in start_angles]} → "
+            f"{[f'{a:.0f}' for a in target_hw]} (hw) "
             f"over {init_steps} steps ({init_steps * init_step_delay:.1f}s)"
         )
         
-        # Gradually interpolate from current → 90°
+        # Gradually interpolate from current → target in HARDWARE space.
+        # Previously inversion was applied on top of hardware readings,
+        # causing inverted joints (shoulder/elbow) to jump violently on
+        # warm restart — that mechanical jerk made the forearm servo
+        # oscillate under load.
         for step in range(1, init_steps + 1):
             progress = step / init_steps
             # Ease-in-out for gentler acceleration/deceleration
@@ -186,29 +230,36 @@ class ArmServoNode(Node):
             smooth_progress = progress * progress * (3.0 - 2.0 * progress)
             
             for i in range(6):
-                intermediate = start_angles[i] + (target - start_angles[i]) * smooth_progress
-                
-                # Apply direction inversion if needed
-                if self.invert_direction[i]:
-                    servo_angle = 180.0 - intermediate
-                else:
-                    servo_angle = intermediate
+                hw_angle = start_angles[i] + (target_hw[i] - start_angles[i]) * smooth_progress
                 
                 # Safety clamp
-                servo_angle = max(0.0, min(180.0, servo_angle))
+                hw_angle = max(0.0, min(270.0 if i == 0 else 180.0, hw_angle))
                 
                 channel = self.channel_map[i]
-                self.kit.servo[channel].angle = servo_angle
+                self.kit.servo[channel].angle = hw_angle
             
             if step < init_steps:
                 time.sleep(init_step_delay)
         
-        # Update tracked positions
+        # Settling: re-write final angles after a short pause to ensure
+        # clean PCA9685 register values (guards against I2C bus noise
+        # from the rapid init writes that can cause servo oscillation).
+        time.sleep(0.05)
+        for i in range(6):
+            channel = self.channel_map[i]
+            self.kit.servo[channel].angle = target_hw[i]
+            time.sleep(0.005)
+        
+        # Update tracked positions (logical space)
         self.current_angles = [target] * 6
         self.get_logger().info("✓ Smooth initialization complete — all servos at 90°")
 
-    def smooth_move(self, target_angles):
-        """Smoothly interpolate servos to target positions"""
+    def smooth_move(self, target_angles, command_version=None):
+        """Smoothly interpolate servos to target positions.
+        
+        If command_version is given, the move will abort early when a newer
+        command arrives (prevents oscillation from queued callbacks).
+        """
         if not self.kit:
             return
         
@@ -216,53 +267,68 @@ class ArmServoNode(Node):
         if self.emergency_stopped:
             self.get_logger().warn("Movement blocked - emergency stop is active")
             return
-            
-        # Calculate the maximum distance any servo needs to travel
-        distances = [abs(target_angles[i] - self.current_angles[i]) for i in range(6)]
-        max_distance = max(distances) if distances else 0
         
-        if max_distance < 0.5:
-            # Already at target
+        # Acquire lock so only one smooth_move runs at a time
+        if not self._move_lock.acquire(blocking=False):
+            # Another move is in progress — it will be superseded by
+            # the command_version check, so just return
             return
         
-        # Calculate number of steps based on speed
-        # Speed 100 = 1 step (instant), Speed 1 = many steps (slow)
-        # Map speed to degrees per step: speed 100 = 10 deg/step, speed 1 = 0.1 deg/step
-        degrees_per_step = (self.speed / 10.0)  # 0.1 to 10 degrees per step
-        num_steps = max(1, int(max_distance / degrees_per_step))
-        
-        # Limit steps for responsiveness
-        num_steps = min(num_steps, 100)
-        
-        for step in range(1, num_steps + 1):
-            progress = step / num_steps
+        try:
+            # Calculate the maximum distance any servo needs to travel
+            distances = [abs(target_angles[i] - self.current_angles[i]) for i in range(6)]
+            max_distance = max(distances) if distances else 0
             
-            for i in range(6):
-                # Linear interpolation
-                current = self.current_angles[i]
-                target = target_angles[i]
-                intermediate = current + (target - current) * progress
-                
-                # Safety clamp - base (index 0) allows up to 245°, others 180°
-                max_angle = 245.0 if i == 0 else 180.0
-                intermediate = max(0.0, min(max_angle, intermediate))
-                
-                # Apply direction inversion if needed
-                if self.invert_direction[i]:
-                    servo_angle = 180.0 - intermediate
-                else:
-                    servo_angle = intermediate
-                
-                # Move servo using channel mapping
-                channel = self.channel_map[i]
-                self.kit.servo[channel].angle = servo_angle
+            if max_distance < 1.0:
+                # Already at target — still refresh hardware registers so
+                # any stale PCA9685 values are overwritten (fixes post-init
+                # oscillation on the forearm joint).
+                for i in range(6):
+                    hw = target_angles[i]
+                    if self.invert_direction[i]:
+                        hw = 180.0 - hw
+                    max_a = 270.0 if i == 0 else 180.0
+                    hw = max(0.0, min(max_a, hw))
+                    self.kit.servo[self.channel_map[i]].angle = hw
+                self.current_angles = list(target_angles)
+                return
             
-            # Small delay between steps for smooth motion
-            if step < num_steps:
-                time.sleep(self.step_delay)
-        
-        # Update current positions
-        self.current_angles = list(target_angles)
+            # Calculate number of steps based on speed
+            degrees_per_step = (self.speed / 10.0)
+            num_steps = max(1, int(max_distance / degrees_per_step))
+            num_steps = min(num_steps, 100)
+            
+            for step in range(1, num_steps + 1):
+                # Check if a newer command has arrived — abort this move
+                if command_version is not None and self._command_version != command_version:
+                    self.get_logger().debug('Aborting move — newer command received')
+                    return
+                
+                progress = step / num_steps
+                
+                for i in range(6):
+                    current = self.current_angles[i]
+                    target = target_angles[i]
+                    intermediate = current + (target - current) * progress
+                    
+                    max_angle = 245.0 if i == 0 else 180.0
+                    intermediate = max(0.0, min(max_angle, intermediate))
+                    
+                    if self.invert_direction[i]:
+                        servo_angle = 180.0 - intermediate
+                    else:
+                        servo_angle = intermediate
+                    
+                    channel = self.channel_map[i]
+                    self.kit.servo[channel].angle = servo_angle
+                
+                if step < num_steps:
+                    time.sleep(self.step_delay)
+            
+            # Update current positions
+            self.current_angles = list(target_angles)
+        finally:
+            self._move_lock.release()
 
     def disable_all_servos(self):
         """Disable all servo outputs - called on shutdown or emergency"""
@@ -291,6 +357,11 @@ class ArmServoNode(Node):
             self.get_logger().warn(f"Expected 6 angles, got {len(angles)}")
             return
 
+        # Bump command version — any in-progress smooth_move will notice
+        # and stop early so this newer command takes over
+        self._command_version += 1
+        my_version = self._command_version
+
         # Prepare target angles with safety clamping
         # Base (index 0) is a 270-degree servo, limited to 245° for safety
         target_angles = []
@@ -307,7 +378,7 @@ class ArmServoNode(Node):
 
         if self.kit:
             # Use smooth movement instead of instant jump
-            self.smooth_move(target_angles)
+            self.smooth_move(target_angles, my_version)
 
 
 def main(args=None):
