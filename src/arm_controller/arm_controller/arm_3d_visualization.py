@@ -388,7 +388,7 @@ class Arm3DVisualization:
         # wrist_rotate joint: xyz="0.0475547 0.0385425 0.027714" -> dist=0.061
         L_base = 0.059       # Base to shoulder height (base joint z)
         L_upper = 0.084      # Shoulder to elbow (elbow joint y - main link!)
-        L_forearm = 0.086    # Elbow to wrist (wrist joint distance)
+        L_forearm = 0.074    # Elbow to wrist (shortened for visual match)
         L_wrist = 0.061      # Wrist to gripper (wrist_rotate joint distance)
         
         positions = []

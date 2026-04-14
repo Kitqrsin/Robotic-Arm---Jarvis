@@ -141,8 +141,10 @@ class ArmControlGUI(Node):
         # Face-following mode
         self.follow_enabled = tk.BooleanVar(value=False)
         self._follow_last_time = 0.0      # rate-limit follow commands
-        self._follow_interval = 0.12      # seconds between follow updates (~8 Hz)
+        self._follow_interval = 0.08      # seconds between follow updates (~12 Hz)
         self._follow_lost_count = 0       # frames without a face
+        self._follow_prev_cx = None        # previous face centre (pixels)
+        self._follow_prev_cy = None
         
         # Auto-follow mode: arm tracks 3D target in real-time
         self.auto_follow_active = tk.BooleanVar(value=False)
@@ -1289,24 +1291,27 @@ class ArmControlGUI(Node):
             )
 
     def _follow_person(self, frame_shape):
-        """Track the largest detected face by adjusting base (yaw) and shoulder (pitch).
+        """Track the largest detected face by centering it in the camera.
 
         Called from _refresh_camera_frame when follow mode is active.
 
-        The camera is mounted on the gripper (eye-in-hand). This means servo
-        corrections must account for the fact that moving a joint also moves
-        the camera.
+        The camera is eye-in-hand (mounted on the gripper).  Face centering
+        is a *pointing* problem, not a reach-to-point problem, so we use
+        direct proportional joint control on decoupled axes — no IK needed.
 
-        Eye-in-hand direction mapping:
-          Base axis — increasing base rotates the whole arm (and camera) LEFT,
-            so a face on the RIGHT of frame (offset_x > 0) needs base to
-            DECREASE to swing the camera toward it.
-          Shoulder axis — increasing shoulder tilts the arm (and camera) DOWN.
-            Because the camera rides on the arm, tilting down makes the scene
-            shift UP in the image (positive feedback). So a face BELOW centre
-            (offset_y > 0) needs shoulder to DECREASE (lift arm up) to bring
-            the camera up and centre the face.  This is the OPPOSITE of a
-            fixed/base-mounted camera.
+          Horizontal (face left/right) → rotate BASE.
+            Eye-in-hand: face right (offset_x > 0) → DECREASE base to
+            swing the camera rightward toward the face.
+
+          Vertical (face up/down) → adjust SHOULDER + ELBOW together.
+            Shoulder: the primary pitch joint.  Decreasing shoulder tilts
+            the arm forward/down (shoulder_rad = rad(90-shoulder), so lower
+            GUI degrees = larger pitch = camera points lower).
+            Elbow: secondary pitch joint, same direction, smaller gain,
+            for smoother and more natural motion.
+
+            Eye-in-hand: face below centre (offset_y > 0) → camera is
+            pointing too HIGH → DECREASE shoulder to tilt camera downward.
         """
         now = time.time()
         if now - self._follow_last_time < self._follow_interval:
@@ -1338,53 +1343,61 @@ class ArmControlGUI(Node):
         offset_x = (bbox_cx - frame_w / 2.0) / (frame_w / 2.0)
         offset_y = (bbox_cy - frame_h / 2.0) / (frame_h / 2.0)
 
-        # ---- Per-axis dead-zone (narrow — we *want* to re-centre) ----
-        DEAD_X = 0.05   # ~3 % of half-width
-        DEAD_Y = 0.05
+        # ---- Dead-zone: hold position when face is near centre ----
+        DEAD = 0.06  # ~6% of half-frame
+        if abs(offset_x) < DEAD and abs(offset_y) < DEAD:
+            if self.detect_info_label:
+                self.detect_info_label.config(
+                    text=f"👤 Face centred  off=({offset_x:+.2f},{offset_y:+.2f})"
+                )
+            return
 
         moved = False
 
-        # ---- Base (yaw) — correct horizontal offset ----
-        current_base = float(self.joint_sliders[0].get())
-        if abs(offset_x) > DEAD_X:
-            BASE_GAIN = 12.0  # degrees per unit offset (responsive)
-            # Eye-in-hand: face right (offset_x > 0) → decrease base to swing camera right
-            base_delta = -offset_x * BASE_GAIN
+        # ==== HORIZONTAL: base rotation ====
+        BASE_GAIN = 5.5  # degrees per unit offset per tick
+        current_base = self.target_positions[0]
+        if abs(offset_x) > DEAD:
+            # Scale gain by how far past dead-zone (soft ramp — gentle near centre)
+            effective_x = (abs(offset_x) - DEAD) / (1.0 - DEAD)  # 0..1
+            base_delta = -math.copysign(effective_x, offset_x) * BASE_GAIN
             new_base = max(0, min(270, current_base + base_delta))
             self.joint_sliders[0].set(new_base)
             self.target_positions[0] = new_base
             moved = True
-        else:
-            new_base = current_base
 
-        # ---- Shoulder (pitch) — correct vertical offset ----
-        current_shoulder = float(self.joint_sliders[1].get())
-        if abs(offset_y) > DEAD_Y:
-            SHOULDER_GAIN = 8.0
-            # Eye-in-hand: face below centre (offset_y > 0) → DECREASE shoulder
-            # to lift arm/camera up, centering the face.
-            shoulder_delta = -offset_y * SHOULDER_GAIN
+        # ==== VERTICAL: shoulder only (pitch control) ====
+        # Using shoulder alone avoids overshoot oscillation that happens
+        # when shoulder + elbow both chase the same error simultaneously.
+        SHOULDER_GAIN = 6.0   # degrees per unit offset per tick
+
+        current_shoulder = self.target_positions[1]
+        if abs(offset_y) > DEAD:
+            # Soft ramp — gentle near centre, stronger when far off
+            effective_y = (abs(offset_y) - DEAD) / (1.0 - DEAD)  # 0..1
+            shoulder_delta = -math.copysign(effective_y, offset_y) * SHOULDER_GAIN
+
             new_shoulder = max(0, min(180, current_shoulder + shoulder_delta))
+
             self.joint_sliders[1].set(new_shoulder)
             self.target_positions[1] = new_shoulder
             moved = True
-        else:
-            new_shoulder = current_shoulder
 
         if moved:
-            # Update 3D visualisation
             if self.viz_3d:
                 self.viz_3d.set_joint_angles(self.target_positions)
             self.send_command()
 
         if self.detect_info_label:
-            arrow  = "→" if offset_x >  DEAD_X else ("←" if offset_x < -DEAD_X else "·")
-            v_arrow = "↓" if offset_y >  DEAD_Y else ("↑" if offset_y < -DEAD_Y else "·")
+            arrow = "→" if offset_x > DEAD_X else ("←" if offset_x < -DEAD_X else "·")
+            v_arrow = "↓" if offset_y > DEAD_Y else ("↑" if offset_y < -DEAD_Y else "·")
             status = "centred" if not moved else f"{arrow}{v_arrow}"
             self.detect_info_label.config(
-                text=f"👤 Face {status}  base={new_base:.0f}°"
-                     f"  shoulder={new_shoulder:.0f}°"
-                     f"  off=({offset_x:+.2f},{offset_y:+.2f})"
+                text=f"👤 Face {status}  "
+                     f"base={self.target_positions[0]:.0f}° "
+                     f"sh={self.target_positions[1]:.0f}° "
+                     f"el={self.target_positions[2]:.0f}°  "
+                     f"off=({offset_x:+.2f},{offset_y:+.2f})"
             )
 
     # ------------------------------------------------------------------ #
