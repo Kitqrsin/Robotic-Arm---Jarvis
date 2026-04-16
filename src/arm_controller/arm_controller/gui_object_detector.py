@@ -35,6 +35,14 @@ except ImportError:
 _FACE_COLOR = (0, 200, 255)   # cyan
 _CUP_COLOR  = (50, 255, 50)   # green
 _BOTTLE_COLOR = (255, 160, 0) # orange
+_RED_OBJ_COLOR = (255, 50, 50)  # red
+
+# HSV ranges for red object detection (red wraps around hue 0/180)
+_RED_HSV_LO1 = (0,   100, 100)
+_RED_HSV_HI1 = (10,  255, 255)
+_RED_HSV_LO2 = (170, 100, 100)
+_RED_HSV_HI2 = (180, 255, 255)
+_RED_MIN_AREA = 800  # minimum contour area in pixels
 
 # COCO class index → friendly name & colour
 _CUP_CLASSES = {
@@ -61,11 +69,12 @@ _YOLO_MODEL_CANDIDATES = [
 
 
 class GUIObjectDetector:
-    """In-process face & cup detector for the TKinter camera panel.
+    """In-process face, cup & red-object detector for the TKinter camera panel.
 
     Modes:
       'face' — YuNet or Haar cascade face detection (default)
       'cup'  — YOLOv8n ONNX object detection for cups/bottles/glasses
+      'red'  — HSV color filtering for red objects
     """
 
     def __init__(
@@ -87,7 +96,7 @@ class GUIObjectDetector:
         self._logger = logger
 
         self.enabled = False
-        self._mode = 'face'             # 'face' or 'cup'
+        self._mode = 'face'             # 'face', 'cup', or 'red'
         self._frame_counter = 0
         self._latest_detections: list[dict] = []
         self._det_lock = threading.Lock()
@@ -164,8 +173,8 @@ class GUIObjectDetector:
         self.enabled = on
 
     def set_mode(self, mode: str):
-        """Switch detection mode: 'face' or 'cup'."""
-        if mode not in ('face', 'cup'):
+        """Switch detection mode: 'face', 'cup', or 'red'."""
+        if mode not in ('face', 'cup', 'red'):
             return
         self._mode = mode
         # Clear stale detections when switching mode
@@ -196,6 +205,8 @@ class GUIObjectDetector:
             return frame_rgb
         if self._mode == 'cup' and self._yolo_net is None:
             return frame_rgb
+        if self._mode == 'red' and not CV2_AVAILABLE:
+            return frame_rgb
 
         self._frame_counter += 1
 
@@ -222,7 +233,9 @@ class GUIObjectDetector:
     def _run_detection(self, frame_rgb: np.ndarray):
         """Run detection and store results based on current mode."""
         try:
-            if self._mode == 'cup' and self._yolo_net is not None:
+            if self._mode == 'red':
+                self._run_red_hsv(frame_rgb)
+            elif self._mode == 'cup' and self._yolo_net is not None:
                 self._run_yolo(frame_rgb)
             elif self._yunet is not None:
                 self._run_yunet(frame_rgb)
@@ -372,10 +385,48 @@ class GUIObjectDetector:
         else:
             return self._draw_with_numpy(frame_rgb, dets)
 
+    def _run_red_hsv(self, frame_rgb: np.ndarray):
+        """Detect red objects via HSV colour filtering."""
+        hsv = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2HSV)
+        mask1 = cv2.inRange(hsv, np.array(_RED_HSV_LO1), np.array(_RED_HSV_HI1))
+        mask2 = cv2.inRange(hsv, np.array(_RED_HSV_LO2), np.array(_RED_HSV_HI2))
+        mask = mask1 | mask2
+
+        # Morphological cleanup
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        h, w = frame_rgb.shape[:2]
+        detections: list[dict] = []
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area < _RED_MIN_AREA:
+                continue
+            x, y, bw, bh = cv2.boundingRect(cnt)
+            detections.append({
+                'x1': x, 'y1': y,
+                'x2': x + bw, 'y2': y + bh,
+                'confidence': min(1.0, area / (w * h * 0.05)),
+                'class_id': 99,
+                'class_name': 'red_object',
+            })
+
+        detections.sort(
+            key=lambda d: (d['x2'] - d['x1']) * (d['y2'] - d['y1']),
+            reverse=True,
+        )
+        with self._det_lock:
+            self._latest_detections = detections
+
     @staticmethod
     def _det_color(det):
         """Pick colour for a detection."""
         cls_id = det.get('class_id', 0)
+        if cls_id == 99:
+            return _RED_OBJ_COLOR
         if cls_id in _CUP_CLASSES:
             return _CUP_CLASSES[cls_id][1]
         return _FACE_COLOR
@@ -393,7 +444,10 @@ class GUIObjectDetector:
 
         for det in dets:
             cls_id = det.get('class_id', 0)
-            if cls_id in _CUP_CLASSES:
+            cls_id = det.get('class_id', 0)
+            if cls_id == 99:
+                color = _RED_OBJ_COLOR
+            elif cls_id in _CUP_CLASSES:
                 color = _CUP_CLASSES[cls_id][1]
             else:
                 color = _FACE_COLOR
@@ -420,7 +474,8 @@ class GUIObjectDetector:
     def _draw_with_numpy(frame_rgb: np.ndarray, dets: list[dict]) -> np.ndarray:
         for det in dets:
             cls_id = det.get('class_id', 0)
-            color = _CUP_CLASSES[cls_id][1] if cls_id in _CUP_CLASSES else _FACE_COLOR
+            color = _RED_OBJ_COLOR if cls_id == 99 else (
+                _CUP_CLASSES[cls_id][1] if cls_id in _CUP_CLASSES else _FACE_COLOR)
             x1, y1, x2, y2 = det['x1'], det['y1'], det['x2'], det['y2']
             frame_rgb[y1:y1+2, x1:x2] = color
             frame_rgb[y2-2:y2, x1:x2] = color

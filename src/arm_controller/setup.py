@@ -40,6 +40,7 @@ setup(
             "moveit_pick_place_node = arm_controller.moveit_pick_place_node:main",
             "gripper_control_service = arm_controller.gripper_control_service:main",
             "bartender_behavior_tree = arm_controller.bartender_behavior_tree:main",
+            "face_track_pid = arm_controller.face_track_pid_node:main",
         ],
     },
 )

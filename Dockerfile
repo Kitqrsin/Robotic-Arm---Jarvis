@@ -1,7 +1,7 @@
 FROM ros:humble
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# ---- System dependencies (single layer) ----
+RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     python3-colcon-common-extensions \
     ros-humble-joint-state-publisher \
@@ -15,9 +15,9 @@ RUN apt-get update && apt-get install -y \
     libatlas-base-dev \
     v4l-utils \
     ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Install Python dependencies
+# ---- Python dependencies (single layer, no cache) ----
 RUN pip3 install --no-cache-dir \
     "Flask>=3.0,<4.0" \
     "Flask-Cors>=4.0" \
@@ -29,14 +29,11 @@ RUN pip3 install --no-cache-dir \
     Pillow \
     "Werkzeug>=2.0" \
     "pytest>=7.0" \
-    "flake8>=6.0" \
-    "black>=24.0" \
-    "isort>=5.13" \
-    "ruff>=0.1.0" \
     opencv-python-headless \
     ultralytics \
     moveit-commander \
-    py_trees
+    py_trees \
+    && pip3 cache purge 2>/dev/null || true
 
 # Install picamera2 (optional — works only on Raspberry Pi OS with libcamera)
 # Falls back to OpenCV if libcamera is not available at runtime

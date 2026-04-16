@@ -1,19 +1,28 @@
-version: '3.8'
-
 services:
   ros2_arm:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: ros2_robot_arm
     privileged: true
     network_mode: host
     group_add:
       - "988"  # i2c group
     volumes:
+      # Workspace on host — build/install/log stay on host filesystem,
+      # not in the container's writable layer.
       - .:/workspace
-      - /dev:/dev
-      - /tmp/.X11-unix:/tmp/.X11-unix
-      - /run/udev:/run/udev:ro
+      # X11 display forwarding
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - $HOME/.Xauthority:/root/.Xauthority:rw
+      # Udev (for device hotplug rules)
+      - /run/udev:/run/udev:ro
+      # Colcon log directory on tmpfs — prevents disk I/O flood
+      # from build logs filling storage on the SD card.
+      - type: tmpfs
+        target: /workspace/log
+        tmpfs:
+          size: 100M
     environment:
       - DISPLAY=${DISPLAY}
       - XAUTHORITY=/root/.Xauthority
@@ -23,3 +32,5 @@ services:
     tty: true
     devices:
       - /dev/i2c-1:/dev/i2c-1
+      - /dev/video0:/dev/video0
+      - /dev/video1:/dev/video1

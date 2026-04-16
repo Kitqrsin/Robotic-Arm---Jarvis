@@ -1,0 +1,28 @@
+# Colcon build artifacts — mounted via volume at runtime, not needed in image
+build/
+install/
+log/
+
+# Python caches
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# Camera frame file (runtime only)
+.camera_frame.jpg
+.cam_frames/
+
+# Large model files (already in workspace volume)
+*.onnx
+*.pt
+
+# Docker files (prevent recursive context inclusion)
+.dockerignore

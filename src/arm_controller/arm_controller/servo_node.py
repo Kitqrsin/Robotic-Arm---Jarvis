@@ -81,21 +81,46 @@ class ArmServoNode(Node):
                 # SERVO ACTUATION RANGES
                 # ============================================================
                 # Set correct actuation range per channel.
-                # Base servo (channel 0) is a 270° servo.
-                # All other servos are standard 180° servos.
-                # Mismatched ranges cause the PWM signal to be wrong,
-                # leading to jitter / oscillation.
-                self.kit.servo[self.channel_map[0]].actuation_range = 270
-                for i in range(1, 6):
-                    self.kit.servo[self.channel_map[i]].actuation_range = 180
-                
-                # Pulse-width ranges must match the physical servos.
-                # Default Adafruit range (750–2250 µs) is wider than
-                # these servos accept, causing jitter / drift under
-                # load (especially the forearm joint).
+                # actuation_range tells Adafruit how many degrees the
+                # servo physically covers across the full pulse range.
+                # GUI only sends 0-180° for joints 1-5, so we keep
+                # actuation_range=180 for those and adjust the PULSE
+                # WINDOW instead to get correct degrees-per-pulse.
+                _actuation = {
+                    0: 270,   # Base — 270° servo, GUI sends 0-270
+                    1: 180,   # Shoulder — GUI sends 0-180 (pulse window handles 270° servo)
+                    2: 180,   # Elbow — D2400St (180° servo)
+                    4: 180,   # Wrist — MG996R (180° servo)
+                    5: 180,   # Wrist rotate
+                    6: 180,   # Gripper
+                }
                 for i in range(6):
                     channel = self.channel_map[i]
-                    self.kit.servo[channel].set_pulse_width_range(1000, 2000)
+                    self.kit.servo[channel].actuation_range = _actuation[channel]
+                
+                # Pulse-width ranges must match the physical servos.
+                #
+                # Per-channel calibration:
+                #   DS35MG-270 (shoulder, ch 1):
+                #     270° servo, full range 500-2500 µs.
+                #     GUI only uses 0-180° → need 180/270 of total range
+                #     = 1333 µs spread, centred at 1500 µs → 833-2167 µs.
+                #     This keeps 90° GUI = 1500 µs = servo midpoint (horn mounting).
+                #   D2400St (elbow, ch 2):    500-2500 µs for full 180°
+                #   MG996R  (wrist, ch 4):    500-2500 µs for full 180°
+                #   Other servos:             1000-2000 µs
+                _pw_ranges = {
+                    0: (1000, 2000),   # Base (270° servo, actuation_range=270)
+                    1: (833, 2167),    # Shoulder (DS35MG-270: 180° window centred in 270° range)
+                    2: (500, 2500),    # Elbow (D2400St — full 180° range)
+                    4: (500, 2500),    # Wrist (MG996R — full 180° range)
+                    5: (1000, 2000),   # Wrist rotate
+                    6: (1000, 2000),   # Gripper
+                }
+                for i in range(6):
+                    channel = self.channel_map[i]
+                    pw_min, pw_max = _pw_ranges[channel]
+                    self.kit.servo[channel].set_pulse_width_range(pw_min, pw_max)
                 # ============================================================
                 
                 self.get_logger().info("PCA9685 Servo Driver Connected!")

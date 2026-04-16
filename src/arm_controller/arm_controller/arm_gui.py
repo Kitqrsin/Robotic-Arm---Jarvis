@@ -58,6 +58,48 @@ except ImportError:
     MoveItIKClient = None
 
 
+# ---------------------------------------------------------------------------
+#  Lightweight PID controller (used by face-follow mode)
+# ---------------------------------------------------------------------------
+
+class _PIDController:
+    """Discrete PID with anti-windup and output clamping."""
+
+    def __init__(self, kp: float, ki: float, kd: float,
+                 output_min: float = -5.0, output_max: float = 5.0,
+                 integral_max: float = 200.0):
+        self.kp = kp
+        self.ki = ki
+        self.kd = kd
+        self.output_min = output_min
+        self.output_max = output_max
+        self.integral_max = integral_max
+        self._integral = 0.0
+        self._prev_error = 0.0
+        self._first = True
+
+    def compute(self, error: float, dt: float) -> float:
+        if dt <= 0.0:
+            return 0.0
+        p = self.kp * error
+        self._integral += error * dt
+        self._integral = max(-self.integral_max,
+                             min(self.integral_max, self._integral))
+        i = self.ki * self._integral
+        if self._first:
+            d = 0.0
+            self._first = False
+        else:
+            d = self.kd * (error - self._prev_error) / dt
+        self._prev_error = error
+        return max(self.output_min, min(self.output_max, p + i + d))
+
+    def reset(self):
+        self._integral = 0.0
+        self._prev_error = 0.0
+        self._first = True
+
+
 class ArmControlGUI(Node):
     def __init__(self, root):
         super().__init__('arm_control_gui')
@@ -138,13 +180,18 @@ class ArmControlGUI(Node):
         )
         self.detect_info_label = None
 
-        # Face-following mode
+        # Face-following mode (PID-based)
         self.follow_enabled = tk.BooleanVar(value=False)
         self._follow_last_time = 0.0      # rate-limit follow commands
         self._follow_interval = 0.08      # seconds between follow updates (~12 Hz)
         self._follow_lost_count = 0       # frames without a face
-        self._follow_prev_cx = None        # previous face centre (pixels)
-        self._follow_prev_cy = None
+        # PID controllers: pan (base) and tilt (shoulder)
+        # Gains tuned for normalised error [-1,+1] → max ~5°/tick step
+        self._pid_pan  = _PIDController(kp=5.0, ki=0.8, kd=1.5,
+                                        output_min=-6.0, output_max=6.0)
+        self._pid_tilt = _PIDController(kp=5.0, ki=0.8, kd=1.5,
+                                        output_min=-6.0, output_max=6.0)
+        self._follow_shoulder_limit = 117.0  # degrees — above this, use wrist instead
         
         # Auto-follow mode: arm tracks 3D target in real-time
         self.auto_follow_active = tk.BooleanVar(value=False)
@@ -156,13 +203,15 @@ class ArmControlGUI(Node):
         self._handshake_detect_threshold = 10  # consecutive frames before triggering
         self._handshake_cancelled = False       # set True to abort mid-sequence
 
-        # ---- Bartender Mode state ----
-        self.bartender_enabled = tk.BooleanVar(value=False)
-        self._bartender_in_progress = False
-        self._bartender_cancelled = False
-        self._bartender_detect_count = 0
-        self._bartender_detect_threshold = 8   # consecutive frames with a cup
-        self._bartender_cup = None              # latest cup detection dict
+        # ---- Grab Object Mode state ----
+        self.grab_enabled = tk.BooleanVar(value=False)
+        self._grab_in_progress = False
+        self._grab_cancelled = False
+        self._grab_detect_count = 0
+        self._grab_detect_threshold = 8   # consecutive frames with a red object
+        self._grab_target = None           # latest red object detection dict
+        self._grab_lost_frames = 0        # frames without detection during servo
+        self._grab_phase = 'idle'         # 'idle', 'servo', 'grabbing'
 
         # ---- Eye-in-Hand Visual Servoing state ----
         self.visual_servo_enabled = tk.BooleanVar(value=False)
@@ -741,18 +790,18 @@ class ArmControlGUI(Node):
         )
         self.handshake_btn.pack(side=tk.LEFT, padx=5)
 
-        self.bartender_btn = tk.Checkbutton(
+        self.grab_btn = tk.Checkbutton(
             ctrl_row,
-            text="\U0001F943 Bartender",
-            variable=self.bartender_enabled,
+            text="\U0001F3AF Grab",
+            variable=self.grab_enabled,
             font=('Arial', 9),
             bg='#3b3b3b',
-            fg='#32ff7e',
+            fg='#ff5555',
             selectcolor='#555555',
             activebackground='#3b3b3b',
-            command=self._on_bartender_toggle
+            command=self._on_grab_toggle
         )
-        self.bartender_btn.pack(side=tk.LEFT, padx=5)
+        self.grab_btn.pack(side=tk.LEFT, padx=5)
 
         self.camera_fps_label = tk.Label(
             ctrl_row,
@@ -1140,10 +1189,10 @@ class ArmControlGUI(Node):
                         else:
                             self._handshake_detect_count = 0
 
-                    # Bartender mode: detect cup and trigger pour sequence
-                    if self.bartender_enabled.get() and not self._bartender_in_progress:
+                    # Grab Object mode: detect red object and trigger grab sequence
+                    if self.grab_enabled.get() and not self._grab_in_progress:
                         dets = self.object_detector.detections
-                        self._bartender_check_cup(dets)
+                        self._grab_check_red(dets)
 
                     # Update detection info label
                     if self.detect_enabled.get() and self.detect_info_label:
@@ -1278,52 +1327,52 @@ class ArmControlGUI(Node):
                 self.detect_enabled.set(True)
                 self.object_detector.toggle(True)
             self._follow_lost_count = 0
-            self.get_logger().info('[FOLLOW] Face-following mode ENABLED')
+            self._follow_last_time = time.time()
+            # Reset PID state so integral doesn't carry over
+            self._pid_pan.reset()
+            self._pid_tilt.reset()
+            self.get_logger().info('[FOLLOW-PID] Face-following mode ENABLED')
             self.info_label.config(
-                text="👤 Follow mode ON — arm will track detected face",
+                text="👤 PID Follow ON — arm will track detected face",
                 fg='#00ccff'
             )
         else:
-            self.get_logger().info('[FOLLOW] Face-following mode DISABLED')
+            self._pid_pan.reset()
+            self._pid_tilt.reset()
+            self.get_logger().info('[FOLLOW-PID] Face-following mode DISABLED')
             self.info_label.config(
                 text="👤 Follow mode OFF",
                 fg='#aaaaaa'
             )
 
     def _follow_person(self, frame_shape):
-        """Track the largest detected face by centering it in the camera.
+        """PID face-tracking: centre the largest detected face in the camera.
 
         Called from _refresh_camera_frame when follow mode is active.
 
-        The camera is eye-in-hand (mounted on the gripper).  Face centering
-        is a *pointing* problem, not a reach-to-point problem, so we use
-        direct proportional joint control on decoupled axes — no IK needed.
+        Uses two independent PID controllers (pan for base, tilt for shoulder)
+        instead of raw proportional gain.  The PID integral term eliminates
+        steady-state offset, while the derivative term damps oscillation —
+        giving smoother, more responsive tracking than pure P-control.
 
-          Horizontal (face left/right) → rotate BASE.
-            Eye-in-hand: face right (offset_x > 0) → DECREASE base to
-            swing the camera rightward toward the face.
-
-          Vertical (face up/down) → adjust SHOULDER + ELBOW together.
-            Shoulder: the primary pitch joint.  Decreasing shoulder tilts
-            the arm forward/down (shoulder_rad = rad(90-shoulder), so lower
-            GUI degrees = larger pitch = camera points lower).
-            Elbow: secondary pitch joint, same direction, smaller gain,
-            for smoother and more natural motion.
-
-            Eye-in-hand: face below centre (offset_y > 0) → camera is
-            pointing too HIGH → DECREASE shoulder to tilt camera downward.
+        Eye-in-hand convention:
+          face right  (err_x > 0) → DECREASE base  (swing camera right)
+          face below  (err_y > 0) → DECREASE shoulder (tilt camera down)
         """
         now = time.time()
-        if now - self._follow_last_time < self._follow_interval:
+        dt = now - self._follow_last_time
+        if dt < self._follow_interval:
             return
         self._follow_last_time = now
 
         dets = self.object_detector.detections
-        # Filter for faces
         faces = [d for d in dets if d['class_name'] == 'face']
         if not faces:
             self._follow_lost_count += 1
-            if self._follow_lost_count > 25:  # ~3 s at 8 Hz
+            if self._follow_lost_count > 25:  # ~3 s at 12 Hz
+                # Reset PID integrals after prolonged loss
+                self._pid_pan.reset()
+                self._pid_tilt.reset()
                 if self.detect_info_label:
                     self.detect_info_label.config(
                         text="👤 Follow: no face detected"
@@ -1332,56 +1381,81 @@ class ArmControlGUI(Node):
 
         self._follow_lost_count = 0
 
-        # Pick the largest face (primary target)
+        # Pick the largest face
         face = max(faces, key=lambda d: (d['x2'] - d['x1']) * (d['y2'] - d['y1']))
         bbox_cx = (face['x1'] + face['x2']) / 2.0
         bbox_cy = (face['y1'] + face['y2']) / 2.0
 
         frame_h, frame_w = frame_shape[:2]
 
-        # Normalised offsets from image centre: [-1, +1]
-        offset_x = (bbox_cx - frame_w / 2.0) / (frame_w / 2.0)
-        offset_y = (bbox_cy - frame_h / 2.0) / (frame_h / 2.0)
+        # Normalised error from image centre: [-1, +1]
+        err_x = (bbox_cx - frame_w / 2.0) / (frame_w / 2.0)
+        err_y = (bbox_cy - frame_h / 2.0) / (frame_h / 2.0)
 
-        # ---- Dead-zone: hold position when face is near centre ----
-        DEAD = 0.06  # ~6% of half-frame
-        if abs(offset_x) < DEAD and abs(offset_y) < DEAD:
+        # Dead-zone: hold position when face is near centre
+        DEAD = 0.06
+        eff_x = 0.0 if abs(err_x) < DEAD else math.copysign((abs(err_x) - DEAD) / (1.0 - DEAD), err_x)
+        eff_y = 0.0 if abs(err_y) < DEAD else math.copysign((abs(err_y) - DEAD) / (1.0 - DEAD), err_y)
+
+        if eff_x == 0.0 and eff_y == 0.0:
             if self.detect_info_label:
                 self.detect_info_label.config(
-                    text=f"👤 Face centred  off=({offset_x:+.2f},{offset_y:+.2f})"
+                    text=f"👤 Face centred  off=({err_x:+.2f},{err_y:+.2f})"
                 )
             return
 
+        # PID compute (error after dead-zone ramp)
+        pan_delta  = self._pid_pan.compute(eff_x, dt)   # degrees
+        tilt_delta = self._pid_tilt.compute(eff_y, dt)
+
         moved = False
 
-        # ==== HORIZONTAL: base rotation ====
-        BASE_GAIN = 5.5  # degrees per unit offset per tick
-        current_base = self.target_positions[0]
-        if abs(offset_x) > DEAD:
-            # Scale gain by how far past dead-zone (soft ramp — gentle near centre)
-            effective_x = (abs(offset_x) - DEAD) / (1.0 - DEAD)  # 0..1
-            base_delta = -math.copysign(effective_x, offset_x) * BASE_GAIN
-            new_base = max(0, min(270, current_base + base_delta))
+        # Horizontal: base
+        if eff_x != 0.0:
+            new_base = max(0, min(270, self.target_positions[0] - pan_delta))
             self.joint_sliders[0].set(new_base)
             self.target_positions[0] = new_base
             moved = True
 
-        # ==== VERTICAL: shoulder only (pitch control) ====
-        # Using shoulder alone avoids overshoot oscillation that happens
-        # when shoulder + elbow both chase the same error simultaneously.
-        SHOULDER_GAIN = 6.0   # degrees per unit offset per tick
+        # Vertical: shoulder / wrist switch at 117°
+        #   shoulder < 117° → shoulder tracks tilt normally
+        #   shoulder >= 117° (face above arm) → freeze shoulder, wrist takes over
+        #   when shoulder drops back below 117° → switch back to shoulder,
+        #     ease wrist toward neutral (90°)
+        if eff_y != 0.0:
+            cur_shoulder = self.target_positions[1]
 
-        current_shoulder = self.target_positions[1]
-        if abs(offset_y) > DEAD:
-            # Soft ramp — gentle near centre, stronger when far off
-            effective_y = (abs(offset_y) - DEAD) / (1.0 - DEAD)  # 0..1
-            shoulder_delta = -math.copysign(effective_y, offset_y) * SHOULDER_GAIN
+            if cur_shoulder >= self._follow_shoulder_limit:
+                # --- WRIST PITCH MODE: face is above the arm ---
+                # Shoulder stays frozen at limit; J4 wrist pitch does the tilt
+                new_j4 = max(0, min(180, self.target_positions[3] - tilt_delta))
+                self.joint_sliders[3].set(new_j4)
+                self.target_positions[3] = new_j4
+                moved = True
 
-            new_shoulder = max(0, min(180, current_shoulder + shoulder_delta))
+                # If tilt_delta wants to decrease shoulder (face moving back down),
+                # allow shoulder to come back below limit
+                proposed_shoulder = cur_shoulder - tilt_delta
+                if proposed_shoulder < self._follow_shoulder_limit:
+                    self.joint_sliders[1].set(proposed_shoulder)
+                    self.target_positions[1] = proposed_shoulder
+            else:
+                # --- SHOULDER MODE: normal range ---
+                new_shoulder = max(0, min(180, cur_shoulder - tilt_delta))
+                # Clamp at the limit — don't exceed
+                if new_shoulder > self._follow_shoulder_limit:
+                    new_shoulder = self._follow_shoulder_limit
+                self.joint_sliders[1].set(new_shoulder)
+                self.target_positions[1] = new_shoulder
+                moved = True
 
-            self.joint_sliders[1].set(new_shoulder)
-            self.target_positions[1] = new_shoulder
-            moved = True
+                # Ease J4 wrist pitch back toward neutral (90°) when shoulder is active
+                cur_j4 = self.target_positions[3]
+                if abs(cur_j4 - 90.0) > 0.5:
+                    j4_step = min(2.0, abs(90.0 - cur_j4))
+                    new_j4 = cur_j4 + j4_step if cur_j4 < 90.0 else cur_j4 - j4_step
+                    self.joint_sliders[3].set(new_j4)
+                    self.target_positions[3] = new_j4
 
         if moved:
             if self.viz_3d:
@@ -1389,15 +1463,17 @@ class ArmControlGUI(Node):
             self.send_command()
 
         if self.detect_info_label:
-            arrow = "→" if offset_x > DEAD_X else ("←" if offset_x < -DEAD_X else "·")
-            v_arrow = "↓" if offset_y > DEAD_Y else ("↑" if offset_y < -DEAD_Y else "·")
+            arrow = "→" if eff_x > 0 else ("←" if eff_x < 0 else "·")
+            v_arrow = "↓" if eff_y > 0 else ("↑" if eff_y < 0 else "·")
+            tilt_joint = "J4" if self.target_positions[1] >= self._follow_shoulder_limit else "sh"
             status = "centred" if not moved else f"{arrow}{v_arrow}"
             self.detect_info_label.config(
-                text=f"👤 Face {status}  "
+                text=f"👤 PID {status}  "
                      f"base={self.target_positions[0]:.0f}° "
                      f"sh={self.target_positions[1]:.0f}° "
-                     f"el={self.target_positions[2]:.0f}°  "
-                     f"off=({offset_x:+.2f},{offset_y:+.2f})"
+                     f"J4={self.target_positions[3]:.0f}° [{tilt_joint}]  "
+                     f"Δtilt={tilt_delta:+.1f}  "
+                     f"err=({err_x:+.2f},{err_y:+.2f})"
             )
 
     # ------------------------------------------------------------------ #
@@ -1696,36 +1772,51 @@ class ArmControlGUI(Node):
         _go_home()
 
     # ------------------------------------------------------------------ #
-    #  Bartender Mode                                                      #
+    #  Grab Object Mode                                                    #
     # ------------------------------------------------------------------ #
 
-    # Bartender sequence poses (absolute angles — NOT deltas)
-    # Sequence: detect cup → reach toward cup → close gripper → lift →
-    #           tilt pour → upright → lower → open gripper → home
-    _BART_PAUSE_MS   = 600
-    _BART_STEPS      = 25
-    _BART_STEP_MS    = 18
+    # Known object dimensions (metres)
+    _GRAB_OBJ_WIDTH      = 0.10    # 10 cm real width
+    _GRAB_FX             = 530.0   # camera focal-length (pixels)
 
-    def _on_bartender_toggle(self):
-        """Handle the 🥃 Bartender checkbox toggle."""
-        on = self.bartender_enabled.get()
+    # Phase-1 centering
+    _GRAB_SERVO_MS       = 100     # tick interval (ms)
+    _GRAB_PAN_GAIN       = 3.0     # degrees per normalised-error per tick
+    _GRAB_TILT_GAIN      = 2.0     # degrees per normalised-error per tick
+    _GRAB_DEADZONE       = 0.10    # centering deadzone (normalised -1..+1)
+    _GRAB_CENTER_OK      = 3       # consecutive centered ticks before advancing
+    _GRAB_CENTER_TIMEOUT = 50      # max centering ticks (~5 s)
+    _GRAB_LOST_LIMIT     = 30      # ticks (~3 s) without detection before abort
+
+    # Phase-2 reach
+    _GRAB_GRIPPER_OPEN   = 30.0
+    _GRAB_GRIPPER_CLOSE  = 140.0
+    _GRAB_HOLD_MS        = 2000    # ms to hold gripper closed
+    _GRAB_INTERP_STEPS   = 40      # joint-space interpolation steps
+    _GRAB_INTERP_MS      = 20      # ms per interpolation step
+
+    # Camera-to-gripper offset
+    _GRAB_CAM_Z_OFFSET   = 0.035   # camera is ~3.5 cm above gripper tip
+    _GRAB_CAM_BASE_OFFSET = 2.0    # degrees — camera slightly right of gripper
+
+    # Arm geometry (must match ik_solver / FK)
+    _GRAB_L_BASE    = 0.059
+    _GRAB_L_UPPER   = 0.084
+    _GRAB_L_FOREARM = 0.086
+    _GRAB_L_WRIST   = 0.061
+    _GRAB_MAX_REACH = 0.084 + 0.086 + 0.061   # 0.231 m from shoulder pivot
+
+    def _on_grab_toggle(self):
+        """Handle the 🎯 Grab checkbox toggle."""
+        on = self.grab_enabled.get()
         if on:
-            if not self.object_detector.cup_detection_available:
-                self.get_logger().warn('[BARTENDER] No YOLOv8n ONNX model — cannot detect cups')
-                self.info_label.config(
-                    text="\U0001F943 YOLO model not found — place yolov8n.onnx in workspace",
-                    fg='#ff4444'
-                )
-                self.bartender_enabled.set(False)
-                return
-
-            # Auto-enable camera & detection in cup mode
+            # Auto-enable camera & detection in red mode
             if not self.camera_enabled.get():
                 self.camera_enabled.set(True)
                 self._on_camera_toggle()
             if not self.detect_enabled.get():
                 self.detect_enabled.set(True)
-            self.object_detector.set_mode('cup')
+            self.object_detector.set_mode('red')
             self.object_detector.toggle(True)
 
             # Disable conflicting modes
@@ -1739,122 +1830,336 @@ class ArmControlGUI(Node):
                 self.handshake_enabled.set(False)
                 self._on_handshake_toggle()
 
-            self._bartender_detect_count = 0
-            self._bartender_cancelled = False
-            self._bartender_cup = None
-            self.get_logger().info('[BARTENDER] Mode ENABLED — looking for cups')
+            self._grab_detect_count = 0
+            self._grab_cancelled = False
+            self._grab_target = None
+            self._grab_lost_frames = 0
+            self._grab_phase = 'idle'
+            self.get_logger().info('[GRAB] Mode ENABLED — looking for red objects')
             self.info_label.config(
-                text="\U0001F943 Bartender mode ON — place a cup in view",
-                fg='#32ff7e'
+                text="\U0001F3AF Grab mode ON — place a red object in view",
+                fg='#ff5555'
             )
         else:
-            self.get_logger().info('[BARTENDER] Mode DISABLED')
-            if self._bartender_in_progress:
-                self._bartender_cancelled = True
-            self._bartender_detect_count = 0
-            self.object_detector.set_mode('face')  # restore face mode
+            self.get_logger().info('[GRAB] Mode DISABLED')
+            if self._grab_in_progress:
+                self._grab_cancelled = True
+            self._grab_detect_count = 0
+            self._grab_phase = 'idle'
+            self.object_detector.set_mode('face')
             self.info_label.config(
-                text="\U0001F943 Bartender mode OFF",
+                text="\U0001F3AF Grab mode OFF",
                 fg='#aaaaaa'
             )
 
-    def _bartender_check_cup(self, dets):
-        """Check for cup detections and trigger bartender sequence."""
-        if self._bartender_in_progress or not self.bartender_enabled.get():
+    def _grab_check_red(self, dets):
+        """Check for red object detections and trigger grab approach."""
+        if self._grab_in_progress or not self.grab_enabled.get():
             return
 
-        cups = [d for d in dets if d.get('class_name') in ('cup', 'wine glass', 'bottle')]
-        if cups:
-            self._bartender_detect_count += 1
-            self._bartender_cup = max(cups, key=lambda d: (d['x2'] - d['x1']) * (d['y2'] - d['y1']))
-            if self._bartender_detect_count >= self._bartender_detect_threshold:
-                self.get_logger().info(f'[BARTENDER] Cup detected! Starting sequence')
-                self._start_bartender()
-                self._bartender_detect_count = 0
+        reds = [d for d in dets if d.get('class_name') == 'red_object']
+        if reds:
+            self._grab_detect_count += 1
+            self._grab_target = max(reds, key=lambda d: (d['x2'] - d['x1']) * (d['y2'] - d['y1']))
+            if self._grab_detect_count >= self._grab_detect_threshold:
+                self.get_logger().info('[GRAB] Red object locked — starting approach')
+                self._start_grab()
+                self._grab_detect_count = 0
         else:
-            self._bartender_detect_count = 0
+            self._grab_detect_count = 0
 
-    def _start_bartender(self):
-        """Begin the bartender sequence — reach, grab, lift, pour, return."""
-        self._bartender_in_progress = True
-        self._bartender_cancelled = False
+    def _grab_estimate_distance(self, obj):
+        """distance = (real_width × focal_length) / bbox_width_px"""
+        bbox_w = obj['x2'] - obj['x1']
+        if bbox_w < 5:
+            return 9.99
+        return (self._GRAB_OBJ_WIDTH * self._GRAB_FX) / bbox_w
 
-        # Capture current pose as home
-        self._bart_home = [float(self.joint_sliders[i].get()) for i in range(6)]
+    # ---- Phase 1: center the object in camera view ----
 
-        # Estimate base angle from cup position in frame
-        cup = self._bartender_cup
-        if cup and hasattr(self, 'camera_label'):
-            frame_w = 640  # camera frame width
-            cup_cx = (cup['x1'] + cup['x2']) / 2.0
-            offset_x = (cup_cx - frame_w / 2.0) / (frame_w / 2.0)  # -1..+1
-            base_now = float(self.joint_sliders[0].get())
-            # Eye-in-hand: negative mapping
-            self._bart_base = max(0, min(270, base_now - offset_x * 15.0))
+    def _start_grab(self):
+        """Open gripper, then start centering the object via base/shoulder."""
+        self._grab_in_progress = True
+        self._grab_cancelled = False
+        self._grab_phase = 'centering'
+        self._grab_lost_frames = 0
+        self._grab_center_ok_count = 0
+        self._grab_center_ticks = 0
+
+        # Open gripper
+        self.joint_sliders[5].set(self._GRAB_GRIPPER_OPEN)
+        self.target_positions[5] = self._GRAB_GRIPPER_OPEN
+        self.send_command()
+
+        self.root.after(self._GRAB_SERVO_MS, self._grab_center_tick)
+
+    def _grab_center_tick(self):
+        """Pan base / tilt shoulder to centre the red object in the frame.
+        Once centred (or timeout), transition to Phase 2 (IK reach)."""
+        if self._grab_cancelled or not self.grab_enabled.get():
+            self._grab_finish_cancel()
+            return
+        if self._grab_phase != 'centering':
+            return
+
+        dets = self.object_detector.detections
+        reds = [d for d in dets if d.get('class_name') == 'red_object']
+
+        if not reds:
+            self._grab_lost_frames += 1
+            if self._grab_lost_frames > self._GRAB_LOST_LIMIT:
+                self.get_logger().warn('[GRAB] Lost object during centering')
+                self.info_label.config(text="\U0001F3AF Lost object", fg='#ff8800')
+                self._grab_in_progress = False
+                self._grab_phase = 'idle'
+                return
+            self.root.after(self._GRAB_SERVO_MS, self._grab_center_tick)
+            return
+
+        self._grab_lost_frames = 0
+        obj = max(reds, key=lambda d: (d['x2'] - d['x1']) * (d['y2'] - d['y1']))
+        self._grab_target = obj
+
+        bbox_cx = (obj['x1'] + obj['x2']) / 2.0
+        bbox_cy = (obj['y1'] + obj['y2']) / 2.0
+
+        err_x = (bbox_cx - 320.0) / 320.0
+        err_y = (bbox_cy - 240.0) / 240.0
+
+        DZ = self._GRAB_DEADZONE
+        off_x = abs(err_x) > DZ
+        off_y = abs(err_y) > DZ
+        centered = not off_x and not off_y
+
+        if not centered:
+            self._grab_center_ok_count = 0
+            # Face-follow convention: object right → decrease base
+            if off_x:
+                eff = math.copysign(abs(err_x) - DZ, err_x)
+                new_base = max(0, min(270,
+                    self.target_positions[0] - eff * self._GRAB_PAN_GAIN))
+                self.joint_sliders[0].set(new_base)
+                self.target_positions[0] = new_base
+            if off_y:
+                eff = math.copysign(abs(err_y) - DZ, err_y)
+                new_sh = max(0, min(180,
+                    self.target_positions[1] - eff * self._GRAB_TILT_GAIN))
+                self.joint_sliders[1].set(new_sh)
+                self.target_positions[1] = new_sh
+            if self.viz_3d:
+                self.viz_3d.set_joint_angles(self.target_positions)
+            self.send_command()
         else:
-            self._bart_base = float(self.joint_sliders[0].get())
+            self._grab_center_ok_count += 1
 
-        # Build the sequence of absolute poses
-        b = self._bart_base
-        self._bart_sequence = [
-            # (label, [base, shoulder, elbow, forearm, wrist, gripper])
-            ('open_gripper',  [b, self._bart_home[1], self._bart_home[2],
-                               self._bart_home[3], self._bart_home[4], 30.0]),
-            ('reach_down',    [b, 60.0, 140.0, 90.0, 90.0, 30.0]),
-            ('close_gripper', [b, 60.0, 140.0, 90.0, 90.0, 140.0]),
-            ('lift_cup',      [b, 100.0, 90.0, 80.0, 90.0, 140.0]),
-            ('tilt_pour',     [b, 100.0, 90.0, 80.0, 40.0, 140.0]),
-            ('hold_pour',     None),  # pause only
-            ('upright',       [b, 100.0, 90.0, 80.0, 90.0, 140.0]),
-            ('lower_cup',     [b, 60.0, 140.0, 90.0, 90.0, 140.0]),
-            ('release',       [b, 60.0, 140.0, 90.0, 90.0, 30.0]),
-            ('home',          self._bart_home),
-        ]
+        self._grab_center_ticks += 1
+        dist = self._grab_estimate_distance(obj)
 
-        self._bartender_step(0)
-
-    def _bartender_step(self, idx):
-        """Execute step `idx` of the bartender sequence."""
-        if self._bartender_cancelled:
-            self._bartender_finish_cancel()
-            return
-
-        if idx >= len(self._bart_sequence):
-            self._bartender_finish()
-            return
-
-        label, target = self._bart_sequence[idx]
-        step_num = idx + 1
-        total = len(self._bart_sequence)
-        self.get_logger().info(f'[BARTENDER] Step {step_num}/{total}: {label}')
         self.info_label.config(
-            text=f"\U0001F943 Step {step_num}/{total}: {label.replace('_', ' ')}",
+            text=f"\U0001F3AF Centering [{self._grab_center_ticks}]: "
+                 f"err=({err_x:+.2f},{err_y:+.2f}) dist={dist:.2f}m",
+            fg='#ff5555'
+        )
+
+        # Advance to Phase 2 when centred enough or timed out
+        if (self._grab_center_ok_count >= self._GRAB_CENTER_OK or
+                self._grab_center_ticks >= self._GRAB_CENTER_TIMEOUT):
+            self.get_logger().info(
+                f'[GRAB] Centering done (ticks={self._grab_center_ticks}, '
+                f'ok={self._grab_center_ok_count})')
+            self._grab_compute_and_reach()
+        else:
+            self.root.after(self._GRAB_SERVO_MS, self._grab_center_tick)
+
+    # ---- Phase 2: compute 3D target, clamp to workspace, IK, reach ----
+
+    def _grab_compute_and_reach(self):
+        """Object is centred.  Compute its 3D position from camera
+        parameters + FK, clamp to the arm's reachable workspace, solve IK,
+        and smoothly interpolate to the solution."""
+        obj = self._grab_target
+        if not obj:
+            self._grab_in_progress = False
+            self._grab_phase = 'idle'
+            return
+
+        self._grab_phase = 'reaching'
+
+        # --- distance from known width ---
+        dist = self._grab_estimate_distance(obj)
+
+        # --- current arm state ---
+        base     = self.target_positions[0]
+        shoulder = self.target_positions[1]
+        elbow    = self.target_positions[2]
+        forearm  = self.target_positions[3]
+        wrist    = self.target_positions[4]
+
+        base_rad     = math.radians(base - 90.0)
+        shoulder_rad = math.radians(90.0 - shoulder)
+        elbow_rad    = math.radians(90.0 - elbow)
+        forearm_rad  = math.radians(90.0 - forearm)
+
+        # Cumulative pitch from vertical (FK convention)
+        pitch = shoulder_rad + elbow_rad + forearm_rad
+
+        # EE position from FK
+        fk = self.forward_kinematics(base, shoulder, elbow, forearm, wrist)
+        ee_x, ee_y, ee_z = fk[0], fk[1], fk[2]
+        r_ee = math.sqrt(ee_x**2 + ee_y**2)
+
+        # --- Object position in the arm plane ---
+        # After centering, the object is roughly along the camera/gripper
+        # optical axis at distance 'dist'.
+        # In the arm plane (radial r, height z):
+        obj_r = r_ee + dist * math.sin(pitch)
+        obj_z = ee_z + dist * math.cos(pitch)
+
+        # Camera offset: camera is ~3.5 cm above the gripper tip, so the
+        # actual object is ~3.5 cm higher than where the camera aims.
+        obj_z += self._GRAB_CAM_Z_OFFSET
+
+        # --- Clamp to reachable workspace ---
+        # Vector from the shoulder pivot (0, L_base) to the object
+        # in the arm plane:
+        dr = obj_r
+        dz = obj_z - self._GRAB_L_BASE
+        reach_dist = math.sqrt(dr**2 + dz**2)
+
+        # If the object is beyond the arm's reach, scale the vector
+        # down while preserving direction → the arm extends as far as
+        # it can toward the object.
+        safe_reach = self._GRAB_MAX_REACH * 0.92   # ~0.213 m (leave margin)
+        if reach_dist > safe_reach:
+            scale = safe_reach / reach_dist
+            dr *= scale
+            dz *= scale
+            self.get_logger().info(
+                f'[GRAB] Target outside workspace '
+                f'({reach_dist:.3f}m > {safe_reach:.3f}m), '
+                f'scaled to {safe_reach:.3f}m')
+
+        target_r = dr
+        target_z = max(0.02, self._GRAB_L_BASE + dz)
+
+        # Camera lateral offset: nudge base angle +2° to compensate
+        # for camera being slightly right of the gripper.
+        target_base_rad = base_rad + math.radians(self._GRAB_CAM_BASE_OFFSET)
+
+        # Convert cylindrical → 3D Cartesian
+        target_x = target_r * math.cos(target_base_rad)
+        target_y = target_r * math.sin(target_base_rad)
+
+        self.get_logger().info(
+            f'[GRAB] Phase 2 — EE=({ee_x:.3f},{ee_y:.3f},{ee_z:.3f}) '
+            f'pitch={math.degrees(pitch):.0f}° dist={dist:.3f}m '
+            f'reach_dist={reach_dist:.3f}m '
+            f'target=({target_x:.3f},{target_y:.3f},{target_z:.3f}) '
+            f'target_r={target_r:.3f} target_z={target_z:.3f}')
+
+        # --- Solve IK (try full reach, then fall back to shorter) ---
+        ik = None
+        for pct in [1.0, 0.85, 0.70, 0.55]:
+            try_r = target_r * pct
+            try_dz = dz * pct
+            try_z = max(0.02, self._GRAB_L_BASE + try_dz)
+            try_x = try_r * math.cos(target_base_rad)
+            try_y = try_r * math.sin(target_base_rad)
+            ik = self.solve_ik_to_point(try_x, try_y, try_z,
+                                         gripper_angle=self._GRAB_GRIPPER_OPEN)
+            if ik:
+                if pct < 1.0:
+                    self.get_logger().info(
+                        f'[GRAB] IK solved at {pct*100:.0f}% reach')
+                break
+
+        if not ik:
+            self.get_logger().warn('[GRAB] IK failed at all reach levels')
+            self.info_label.config(
+                text="\U0001F3AF IK failed — can't reach", fg='#ff8800')
+            self._grab_in_progress = False
+            self._grab_phase = 'idle'
+            return
+
+        # --- Verify IK result direction ---
+        fk2 = self.forward_kinematics(
+            ik['base'], ik['shoulder'], ik['elbow'],
+            ik['forearm'], ik['wrist'])
+        ik_r = math.sqrt(fk2[0]**2 + fk2[1]**2)
+
+        self.get_logger().info(
+            f'[GRAB] IK solution: base={ik["base"]:.1f} sh={ik["shoulder"]:.1f} '
+            f'el={ik["elbow"]:.1f} fw={ik["forearm"]:.1f} wr={ik["wrist"]:.1f}')
+        self.get_logger().info(
+            f'[GRAB] FK verify: ({fk2[0]:.3f},{fk2[1]:.3f},{fk2[2]:.3f}) '
+            f'r={ik_r:.3f}')
+
+        # Sanity check: arm should extend further out than current position
+        if ik_r < r_ee * 0.5:
+            self.get_logger().warn(
+                f'[GRAB] IK result curls inward (r={ik_r:.3f} < {r_ee:.3f}) — '
+                f'rejecting')
+            self.info_label.config(
+                text="\U0001F3AF Bad IK solution — retrying", fg='#ff8800')
+            self._grab_in_progress = False
+            self._grab_phase = 'idle'
+            return
+
+        target_angles = [ik['base'], ik['shoulder'], ik['elbow'],
+                         ik['forearm'], ik['wrist'], self._GRAB_GRIPPER_OPEN]
+
+        self.info_label.config(
+            text="\U0001F3AF Reaching toward object...", fg='#ff5555')
+        self._grab_interpolate(target_angles,
+                               on_complete=self._grab_grip_and_release)
+
+    # ---- Phase 3: grip + hold + release ----
+
+    def _grab_grip_and_release(self):
+        """Close gripper, hold 2 s, then release."""
+        if self._grab_cancelled:
+            self._grab_finish_cancel()
+            return
+
+        self._grab_phase = 'grabbing'
+        self.joint_sliders[5].set(self._GRAB_GRIPPER_CLOSE)
+        self.target_positions[5] = self._GRAB_GRIPPER_CLOSE
+        self.send_command()
+        self.info_label.config(text="\U0001F3AF Gripping!", fg='#32ff7e')
+        self.get_logger().info('[GRAB] Gripper CLOSED — holding 2 s')
+
+        self.root.after(self._GRAB_HOLD_MS, self._grab_release)
+
+    def _grab_release(self):
+        """Open gripper, finish."""
+        if self._grab_cancelled:
+            self._grab_finish_cancel()
+            return
+
+        self.joint_sliders[5].set(self._GRAB_GRIPPER_OPEN)
+        self.target_positions[5] = self._GRAB_GRIPPER_OPEN
+        self.send_command()
+        self.get_logger().info('[GRAB] Gripper RELEASED — done')
+        self.info_label.config(
+            text="\U0001F3AF Done! Place another red object...",
             fg='#32ff7e'
         )
+        self._grab_in_progress = False
+        self._grab_phase = 'idle'
+        self._grab_detect_count = 0
 
-        if target is None:
-            # Pause-only step (e.g. hold pour)
-            self.root.after(1500, lambda: self._bartender_step(idx + 1))
-            return
+    # ---- Helpers ----
 
-        self._bartender_interpolate(
-            target,
-            on_complete=lambda: self.root.after(
-                self._BART_PAUSE_MS,
-                lambda: self._bartender_step(idx + 1)
-            )
-        )
-
-    def _bartender_interpolate(self, target_angles, on_complete=None):
-        """Smooth interpolation for bartender moves."""
+    def _grab_interpolate(self, target_angles, on_complete=None):
+        """Smoothly interpolate all joints to *target_angles*."""
         start = [float(self.joint_sliders[i].get()) for i in range(6)]
-        steps = self._BART_STEPS
-        delay = self._BART_STEP_MS
-        inc = [(t - s) / steps for s, t in zip(start, target_angles)]
+        steps = self._GRAB_INTERP_STEPS
+        delay = self._GRAB_INTERP_MS
+        inc   = [(t - s) / steps for s, t in zip(start, target_angles)]
 
-        def _s(n):
-            if self._bartender_cancelled:
-                self._bartender_finish_cancel()
+        def _step(n):
+            if self._grab_cancelled:
+                self._grab_finish_cancel()
                 return
             if n >= steps:
                 for i, a in enumerate(target_angles):
@@ -1871,28 +2176,17 @@ class ArmControlGUI(Node):
                 self.joint_sliders[i].set(val)
                 self.target_positions[i] = val
             self.send_command()
-            self.root.after(delay, lambda: _s(n + 1))
+            self.root.after(delay, lambda: _step(n + 1))
 
-        _s(0)
+        _step(0)
 
-    def _bartender_finish(self):
-        """Clean up after completed bartender sequence."""
-        self._bartender_in_progress = False
-        self._bartender_detect_count = 0
-        self._bartender_cup = None
-        self.get_logger().info('[BARTENDER] Sequence complete — ready for next cup')
-        self.info_label.config(
-            text="\U0001F943 Done! Place another cup to pour again...",
-            fg='#32ff7e'
-        )
-
-    def _bartender_finish_cancel(self):
-        """Clean up after cancelled bartender — go home."""
-        self.get_logger().info('[BARTENDER] Cancelled — returning home')
-        self.info_label.config(text="\U0001F943 Cancelled", fg='#ff8800')
-        self._bartender_cancelled = False
-        home = getattr(self, '_bart_home', [90.0, 90.0, 90.0, 90.0, 90.0, 90.0])
-        self._bartender_interpolate(home, on_complete=lambda: setattr(self, '_bartender_in_progress', False))
+    def _grab_finish_cancel(self):
+        """Clean up after cancelled grab."""
+        self.get_logger().info('[GRAB] Cancelled')
+        self.info_label.config(text="\U0001F3AF Cancelled", fg='#ff8800')
+        self._grab_cancelled = False
+        self._grab_phase = 'idle'
+        self._grab_in_progress = False
 
     # ------------------------------------------------------------------ #
     #  Eye-in-Hand Visual Servoing                                         #
